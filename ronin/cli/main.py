@@ -83,6 +83,85 @@ def _build_parser() -> argparse.ArgumentParser:
         help="The note text (quotes optional). Empty opens source_log.md instead.",
     )
 
+    # -- tailor -------------------------------------------------------------
+    tailor_parser = subparsers.add_parser(
+        "tailor",
+        help="Select GitHub projects and build a job-specific STAR resume",
+    )
+    tailor_sub = tailor_parser.add_subparsers(dest="tailor_action", required=True)
+
+    tailor_index = tailor_sub.add_parser(
+        "index",
+        help="Create a review-required projects.yaml draft from local repositories",
+    )
+    tailor_index.add_argument(
+        "--root", required=True, help="Directory containing repositories"
+    )
+    tailor_index.add_argument(
+        "--output",
+        default="",
+        help="Catalog output path (default: ~/.ronin/projects.yaml)",
+    )
+
+    tailor_build = tailor_sub.add_parser(
+        "build",
+        help="Select projects and generate evidence-constrained STAR bullets",
+    )
+    job_source = tailor_build.add_mutually_exclusive_group(required=True)
+    job_source.add_argument(
+        "--job-id", default="", help="Job id already stored by Ronin"
+    )
+    job_source.add_argument(
+        "--jd-file", default="", help="Plain-text or Markdown job description"
+    )
+    tailor_build.add_argument("--title", default="", help="Job title for --jd-file")
+    tailor_build.add_argument("--company", default="", help="Company for --jd-file")
+    tailor_build.add_argument(
+        "--catalog",
+        default="",
+        help="Verified projects YAML (default: ~/.ronin/projects.yaml)",
+    )
+    tailor_build.add_argument(
+        "--base-resume",
+        default="",
+        help="Markdown or LaTeX resume whose Technical Projects section is replaced",
+    )
+    tailor_build.add_argument("--output-dir", default="", help="Artifact directory")
+    tailor_build.add_argument("--project-limit", type=int, default=3)
+    tailor_build.add_argument("--min-project-score", type=float, default=5.0)
+    tailor_build.add_argument(
+        "--bullets-per-project", type=int, choices=[2, 3], default=3
+    )
+    tailor_build.add_argument("--max-words-per-bullet", type=int, default=42)
+    tailor_build.add_argument("--provider", choices=["anthropic", "openai"], default="")
+    tailor_build.add_argument("--model", default="")
+    tailor_build.add_argument(
+        "--preview",
+        action="store_true",
+        help="Show selected projects without calling AI or writing files",
+    )
+
+    # -- applications -------------------------------------------------------
+    applications_parser = subparsers.add_parser(
+        "applications",
+        help="List or export submitted positions and resume artifacts",
+    )
+    applications_sub = applications_parser.add_subparsers(
+        dest="applications_action", required=True
+    )
+    applications_list = applications_sub.add_parser("list", help="Show submitted jobs")
+    applications_list.add_argument("--limit", type=int, default=50)
+    applications_list.add_argument("--stage", default="", help="Filter outcome stage")
+    applications_export = applications_sub.add_parser(
+        "export", help="Export submitted jobs to CSV or Markdown"
+    )
+    applications_export.add_argument("--output", default="")
+    applications_export.add_argument(
+        "--format", choices=["csv", "markdown"], default="csv"
+    )
+    applications_export.add_argument("--stage", default="", help="Filter outcome stage")
+    applications_export.add_argument("--limit", type=int, default=0)
+
     # -- apply ---------------------------------------------------------------
     apply_parser = subparsers.add_parser(
         "apply",
@@ -897,6 +976,46 @@ def main() -> None:
         from ronin.cli.resume_ops import log_note
 
         rc = log_note(note=" ".join(getattr(args, "note", []) or []))
+        if rc != 0:
+            sys.exit(rc)
+
+    elif args.command == "tailor":
+        from ronin.cli.tailor import build_resume, index_projects
+
+        if args.tailor_action == "index":
+            rc = index_projects(root=args.root, output=args.output)
+        else:
+            rc = build_resume(
+                job_id=args.job_id,
+                jd_file=args.jd_file,
+                title=args.title,
+                company=args.company,
+                catalog=args.catalog,
+                base_resume=args.base_resume,
+                output_dir=args.output_dir,
+                project_limit=args.project_limit,
+                min_project_score=args.min_project_score,
+                bullets_per_project=args.bullets_per_project,
+                max_words_per_bullet=args.max_words_per_bullet,
+                provider=args.provider,
+                model=args.model,
+                preview=args.preview,
+            )
+        if rc != 0:
+            sys.exit(rc)
+
+    elif args.command == "applications":
+        from ronin.cli.applications import export_applications, list_applications
+
+        if args.applications_action == "list":
+            rc = list_applications(limit=args.limit, stage=args.stage)
+        else:
+            rc = export_applications(
+                output=args.output,
+                file_format=args.format,
+                stage=args.stage,
+                limit=args.limit,
+            )
         if rc != 0:
             sys.exit(rc)
 

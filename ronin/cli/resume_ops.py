@@ -15,7 +15,7 @@ from ronin.profile_store import (
     upsert_resume_profile,
     write_profile_yaml_raw,
 )
-from ronin.resume_variants import ARCHETYPES, ResumeVariantManager
+from ronin.resume_variants import ResumeVariantManager
 from ronin.seek.resume_uploader import SeekResumeUploader, SeekResumeUploadError
 
 console = Console()

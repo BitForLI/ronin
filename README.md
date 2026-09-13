@@ -63,6 +63,59 @@ The rest of this document walks through every step in detail.
 
 ---
 
+## Job-Specific Resumes from GitHub Projects
+
+Ronin can rank verified portfolio projects against one job description and
+rewrite the Technical Projects section with evidence-constrained, compressed
+STAR bullets. It does not merely swap keywords: each output records the
+selected projects, their match reasons, and the exact source fact ids used by
+every bullet.
+
+Create a draft catalog from local repository clones:
+
+```bash
+ronin tailor index --root C:\path\to\repositories
+```
+
+Review `~/.ronin/projects.yaml`. Add source-backed situation, task, action and
+result facts, then set `needs_review: false` for entries you have verified. See
+`projects.example.yaml` for the schema.
+
+Preview project selection without an AI call or file write:
+
+```bash
+ronin tailor build --job-id 12345678 --preview
+```
+
+Generate a complete LaTeX resume by replacing the existing Technical Projects
+section in a base resume:
+
+```bash
+ronin tailor build \
+  --job-id 12345678 \
+  --base-resume C:\path\to\base-resume.tex \
+  --project-limit 3 \
+  --bullets-per-project 3
+```
+
+The command writes the tailored resume and a JSON evidence manifest under
+`~/.ronin/tailored_resumes/<job-id>/`. For database-backed jobs it also records
+the selected project ids and artifact paths on the job. When the application is
+submitted, those fields are copied into the application ledger.
+
+List or export submitted applications:
+
+```bash
+ronin applications list --limit 50
+ronin applications export --format csv
+ronin applications export --format markdown
+```
+
+The ledger includes the company, position, application date, match score,
+selected projects, exact resume file, current outcome stage and job URL.
+
+---
+
 ## Prerequisites
 
 Before you begin, you need four things:

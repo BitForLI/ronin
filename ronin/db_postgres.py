@@ -157,7 +157,11 @@ class PostgresManager:
                 below_threshold INTEGER DEFAULT 0,
                 selection_needs_review INTEGER DEFAULT 0,
                 application_batch_id BIGINT,
-                resume_commit_hash TEXT
+                resume_commit_hash TEXT,
+                selected_projects TEXT,
+                tailored_resume_path TEXT,
+                tailoring_manifest_path TEXT,
+                tailoring_generated_at TEXT
             )
         """
         )
@@ -207,6 +211,10 @@ class PostgresManager:
                 outcome_email_id TEXT,
                 market_intelligence_only INTEGER DEFAULT 0,
                 below_threshold INTEGER DEFAULT 0,
+                selected_projects TEXT,
+                tailored_resume_path TEXT,
+                tailoring_manifest_path TEXT,
+                tailoring_generated_at TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT,
                 last_modified TEXT
@@ -493,6 +501,30 @@ class PostgresManager:
         # Outcome-weighted apply ordering; recomputed by recompute_queue.
         cursor.execute(
             "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS priority_score DOUBLE PRECISION"
+        )
+        cursor.execute(
+            "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS selected_projects TEXT"
+        )
+        cursor.execute(
+            "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS tailored_resume_path TEXT"
+        )
+        cursor.execute(
+            "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS tailoring_manifest_path TEXT"
+        )
+        cursor.execute(
+            "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS tailoring_generated_at TEXT"
+        )
+        cursor.execute(
+            "ALTER TABLE applications ADD COLUMN IF NOT EXISTS selected_projects TEXT"
+        )
+        cursor.execute(
+            "ALTER TABLE applications ADD COLUMN IF NOT EXISTS tailored_resume_path TEXT"
+        )
+        cursor.execute(
+            "ALTER TABLE applications ADD COLUMN IF NOT EXISTS tailoring_manifest_path TEXT"
+        )
+        cursor.execute(
+            "ALTER TABLE applications ADD COLUMN IF NOT EXISTS tailoring_generated_at TEXT"
         )
         cursor.execute(
             "UPDATE jobs SET apply_type = "
@@ -1020,6 +1052,10 @@ class PostgresManager:
             "application_batch_id",
             "resume_commit_hash",
             "priority_score",
+            "selected_projects",
+            "tailored_resume_path",
+            "tailoring_manifest_path",
+            "tailoring_generated_at",
         }
 
         safe_fields = {k: v for k, v in fields.items() if k in allowed_fields}
@@ -1277,6 +1313,23 @@ class PostgresManager:
                     timestamp,
                     timestamp,
                     timestamp,
+                ),
+            )
+            cursor.execute(
+                """
+                UPDATE applications
+                SET selected_projects = %s,
+                    tailored_resume_path = %s,
+                    tailoring_manifest_path = %s,
+                    tailoring_generated_at = %s
+                WHERE job_id = %s
+            """,
+                (
+                    job_record.get("selected_projects"),
+                    job_record.get("tailored_resume_path"),
+                    job_record.get("tailoring_manifest_path"),
+                    job_record.get("tailoring_generated_at"),
+                    job_id,
                 ),
             )
             self.conn.commit()

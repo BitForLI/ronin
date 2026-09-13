@@ -167,6 +167,10 @@ class SQLiteManager:
                 selection_needs_review INTEGER DEFAULT 0,
                 application_batch_id INTEGER,
                 resume_commit_hash TEXT,
+                selected_projects TEXT,
+                tailored_resume_path TEXT,
+                tailoring_manifest_path TEXT,
+                tailoring_generated_at TEXT,
                 FOREIGN KEY (company_id) REFERENCES companies(id)
             )
         """
@@ -217,6 +221,10 @@ class SQLiteManager:
                 outcome_email_id TEXT,
                 market_intelligence_only INTEGER DEFAULT 0,
                 below_threshold INTEGER DEFAULT 0,
+                selected_projects TEXT,
+                tailored_resume_path TEXT,
+                tailoring_manifest_path TEXT,
+                tailoring_generated_at TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT,
                 last_modified TEXT
@@ -490,6 +498,10 @@ class SQLiteManager:
             # Outcome-weighted apply ordering. Recomputed by recompute_queue on
             # every apply run; NULL until then, which sorts last.
             ("priority_score", "REAL", "NULL"),
+            ("selected_projects", "TEXT", "NULL"),
+            ("tailored_resume_path", "TEXT", "NULL"),
+            ("tailoring_manifest_path", "TEXT", "NULL"),
+            ("tailoring_generated_at", "TEXT", "NULL"),
         ]:
             try:
                 cursor.execute(f"SELECT {col} FROM jobs LIMIT 1")
@@ -562,6 +574,10 @@ class SQLiteManager:
             ("market_intelligence_only", "INTEGER", "0"),
             ("below_threshold", "INTEGER", "0"),
             ("updated_at", "TEXT", "NULL"),
+            ("selected_projects", "TEXT", "NULL"),
+            ("tailored_resume_path", "TEXT", "NULL"),
+            ("tailoring_manifest_path", "TEXT", "NULL"),
+            ("tailoring_generated_at", "TEXT", "NULL"),
         ]:
             try:
                 cursor.execute(f"SELECT {col} FROM applications LIMIT 1")
@@ -1210,6 +1226,10 @@ class SQLiteManager:
             "application_batch_id",
             "resume_commit_hash",
             "priority_score",
+            "selected_projects",
+            "tailored_resume_path",
+            "tailoring_manifest_path",
+            "tailoring_generated_at",
         }
 
         safe_fields = {k: v for k, v in fields.items() if k in allowed_fields}
@@ -1457,6 +1477,23 @@ class SQLiteManager:
                     timestamp,
                     timestamp,
                     timestamp,
+                ),
+            )
+            cursor.execute(
+                """
+                UPDATE applications
+                SET selected_projects = ?,
+                    tailored_resume_path = ?,
+                    tailoring_manifest_path = ?,
+                    tailoring_generated_at = ?
+                WHERE job_id = ?
+            """,
+                (
+                    job_record.get("selected_projects"),
+                    job_record.get("tailored_resume_path"),
+                    job_record.get("tailoring_manifest_path"),
+                    job_record.get("tailoring_generated_at"),
+                    job_id,
                 ),
             )
             self.conn.commit()

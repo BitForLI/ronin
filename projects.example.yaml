@@ -1,0 +1,40 @@
+schema_version: 1
+instructions: >-
+  Treat this file as a source-of-truth catalog. Every fact must point to a
+  repository file, test, report, or other evidence that you can defend in an
+  interview. Set needs_review to false only after checking the entry.
+
+projects:
+  - id: example-api
+    name: ExampleAPI
+    repository: https://github.com/example/example-api
+    summary: A sample service used to demonstrate the project fact schema.
+    technologies:
+      - Python
+      - FastAPI
+      - PostgreSQL
+      - pytest
+    capabilities:
+      - REST API development
+      - input validation
+      - automated testing
+    domains:
+      - developer tooling
+    evidence:
+      - id: context:1
+        kind: situation
+        text: The service needed a consistent interface for creating and retrieving records.
+        source: README.md
+      - id: action:1
+        kind: action
+        text: Implemented typed FastAPI endpoints with request validation and PostgreSQL persistence.
+        source: src/api.py
+      - id: action:2
+        kind: action
+        text: Added pytest coverage for valid requests, invalid payloads and missing records.
+        source: tests/test_api.py
+      - id: result:1
+        kind: result
+        text: The documented API can be started locally and exercised through repeatable automated tests.
+        source: README.md
+    needs_review: true
