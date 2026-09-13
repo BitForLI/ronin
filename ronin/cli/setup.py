@@ -34,7 +34,6 @@ from textual.widgets import (
     RichLog,
     Select,
     Static,
-    TextArea,
 )
 
 # ---------------------------------------------------------------------------
@@ -386,12 +385,7 @@ class ProfessionalScreen(Screen):
             existing = ", ".join(skills.get(cat, []))
             display_name = cat.replace("_", " ").title()
             widgets.append(Label(display_name))
-            widgets.append(
-                TextArea(
-                    text=existing,
-                    id=f"skill_{cat}",
-                )
-            )
+            widgets.append(Input(value=existing, id=f"skill_{cat}"))
         return widgets
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -404,8 +398,7 @@ class ProfessionalScreen(Screen):
             display_name = f"Category {idx} (rename in profile.yaml)"
             container.mount(Label(display_name), before="#add_skill_cat")
             container.mount(
-                TextArea(text="", id=f"skill_{new_cat}"),
-                before="#add_skill_cat",
+                Input(value="", id=f"skill_{new_cat}"), before="#add_skill_cat"
             )
         elif event.button.id == "nav_next":
             self.app.wizard_data["professional"] = self._collect()
@@ -417,7 +410,7 @@ class ProfessionalScreen(Screen):
     def _collect(self) -> dict:
         skills: dict[str, list[str]] = {}
         for cat in self._current_categories:
-            raw = self.query_one(f"#skill_{cat}", TextArea).text.strip()
+            raw = self.query_one(f"#skill_{cat}", Input).value.strip()
             skills[cat] = [s.strip() for s in raw.split(",") if s.strip()]
 
         def _int_or(val: str, default: int = 0) -> int:
@@ -450,14 +443,14 @@ class PreferencesScreen(Screen):
         yield Header()
         yield ScrollableContainer(
             Static("[bold]Preferences[/bold]\n", classes="section-header"),
-            Label("High-value signals (one per line)"),
-            TextArea(
-                text="\n".join(data.get("high_value_signals", [])),
+            Label("High-value signals (comma-separated)"),
+            Input(
+                value=", ".join(data.get("high_value_signals", [])),
                 id="high_value_signals",
             ),
-            Label("Red flags (one per line)"),
-            TextArea(
-                text="\n".join(data.get("red_flags", [])),
+            Label("Red flags (comma-separated)"),
+            Input(
+                value=", ".join(data.get("red_flags", [])),
                 id="red_flags",
             ),
             Static("\n[bold]Preferred work types[/bold]"),
@@ -483,9 +476,9 @@ class PreferencesScreen(Screen):
         yield Footer()
 
     def _collect(self) -> dict:
-        def _lines(widget_id: str) -> list[str]:
-            raw = self.query_one(f"#{widget_id}", TextArea).text.strip()
-            return [line.strip() for line in raw.splitlines() if line.strip()]
+        def _items(widget_id: str) -> list[str]:
+            raw = self.query_one(f"#{widget_id}", Input).value.strip()
+            return [item.strip() for item in raw.split(",") if item.strip()]
 
         work_types = [
             wt
@@ -498,8 +491,8 @@ class PreferencesScreen(Screen):
             if self.query_one(f"#arr_{arr}", Checkbox).value
         ]
         return {
-            "high_value_signals": _lines("high_value_signals"),
-            "red_flags": _lines("red_flags"),
+            "high_value_signals": _items("high_value_signals"),
+            "red_flags": _items("red_flags"),
             "preferred_work_types": work_types,
             "preferred_arrangements": arrangements,
         }
@@ -565,9 +558,9 @@ class ResumesScreen(Screen):
                 value=jt in data.get("job_types", []),
                 id=f"{prefix}_jt_{jt.replace('-', '_')}",
             )
-        yield Label("Resume text (paste full plain-text resume)")
-        yield TextArea(
-            text=data.get("text", ""),
+        yield Label("Resume text (paste plain text; line breaks are collapsed)")
+        yield Input(
+            value=" ".join(str(data.get("text", "")).splitlines()),
             id=f"{prefix}_text",
         )
 
@@ -582,7 +575,7 @@ class ResumesScreen(Screen):
             "name": self.query_one(f"#{prefix}_name", Input).value.strip()
             or f"resume_{index}",
             "job_types": job_types,
-            "text": self.query_one(f"#{prefix}_text", TextArea).text,
+            "text": self.query_one(f"#{prefix}_text", Input).value,
         }
 
     def _collect_all(self) -> list[dict]:
@@ -641,19 +634,19 @@ class CoverLetterScreen(Screen):
                 value=data.get("spelling", "Australian English"),
                 id="spelling",
             ),
-            Label("Anti-slop rules (one per line)"),
-            TextArea(
-                text="\n".join(data.get("anti_slop_rules", [])),
+            Label("Anti-slop rules (comma-separated)"),
+            Input(
+                value=", ".join(data.get("anti_slop_rules", [])),
                 id="anti_slop_rules",
             ),
             Label("Contract framing (how to frame cover letters for contract roles)"),
-            TextArea(
-                text=data.get("contract_framing", ""),
+            Input(
+                value=data.get("contract_framing", ""),
                 id="contract_framing",
             ),
             Label("Full-time framing (how to frame cover letters for permanent roles)"),
-            TextArea(
-                text=data.get("fulltime_framing", ""),
+            Input(
+                value=data.get("fulltime_framing", ""),
                 id="fulltime_framing",
             ),
             NavFooter(),
@@ -667,19 +660,19 @@ class CoverLetterScreen(Screen):
             except (ValueError, TypeError):
                 return default
 
-        raw_rules = self.query_one("#anti_slop_rules", TextArea).text.strip()
-        rules = [r.strip() for r in raw_rules.splitlines() if r.strip()]
+        raw_rules = self.query_one("#anti_slop_rules", Input).value.strip()
+        rules = [rule.strip() for rule in raw_rules.split(",") if rule.strip()]
         return {
             "tone": self.query_one("#tone", Select).value,
             "max_words": _int_or(self.query_one("#max_words", Input).value, 150),
             "spelling": self.query_one("#spelling", Select).value,
             "anti_slop_rules": rules,
             "contract_framing": self.query_one(
-                "#contract_framing", TextArea
-            ).text.strip(),
+                "#contract_framing", Input
+            ).value.strip(),
             "fulltime_framing": self.query_one(
-                "#fulltime_framing", TextArea
-            ).text.strip(),
+                "#fulltime_framing", Input
+            ).value.strip(),
         }
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -702,11 +695,11 @@ class SearchConfigScreen(Screen):
         yield ScrollableContainer(
             Static("[bold]Search Configuration[/bold]\n", classes="section-header"),
             Label(
-                "Keywords (one per line, use Seek format: "
+                "Keywords (comma-separated, use Seek format: "
                 '\'"job title"-or-"job titles"\')'
             ),
-            TextArea(
-                text="\n".join(data.get("keywords", [])),
+            Input(
+                value=", ".join(data.get("keywords", [])),
                 id="keywords",
             ),
             Label("Location"),
@@ -744,8 +737,8 @@ class SearchConfigScreen(Screen):
             except (ValueError, TypeError):
                 return default
 
-        raw_kw = self.query_one("#keywords", TextArea).text.strip()
-        keywords = [k.strip() for k in raw_kw.splitlines() if k.strip()]
+        raw_kw = self.query_one("#keywords", Input).value.strip()
+        keywords = [keyword.strip() for keyword in raw_kw.split(",") if keyword.strip()]
         return {
             "keywords": keywords,
             "location": self.query_one("#search_location", Input).value.strip(),
@@ -1479,7 +1472,7 @@ class SetupWizard(App):
     ScrollableContainer {
         padding: 1 2;
     }
-    Input, TextArea, Select {
+    Input, Select {
         margin-bottom: 1;
     }
     Input {
@@ -1487,27 +1480,21 @@ class SetupWizard(App):
         min-height: 3;
         padding: 0 2;
     }
-    TextArea {
-        height: 5;
-        min-height: 5;
-        padding: 0 1;
-    }
-    Input, TextArea, SelectCurrent, SelectOverlay {
+    Input, SelectCurrent, SelectOverlay {
         background: #20252b;
         color: #f4f7fb;
     }
-    Input:focus, TextArea:focus, Select:focus > SelectCurrent {
+    Input:focus, Select:focus > SelectCurrent {
         background: #252c34;
     }
-    Input > .input--cursor, TextArea .text-area--cursor {
+    Input > .input--cursor {
         background: #f4f7fb;
         color: #111418;
     }
-    Input > .input--placeholder, Input > .input--suggestion,
-    TextArea .text-area--placeholder {
+    Input > .input--placeholder, Input > .input--suggestion {
         color: #9aa4af;
     }
-    Input > .input--selection, TextArea .text-area--selection {
+    Input > .input--selection {
         background: #0b78d0;
         color: #ffffff;
     }
