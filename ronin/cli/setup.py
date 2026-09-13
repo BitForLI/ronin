@@ -1482,6 +1482,25 @@ class SetupWizard(App):
     Input, TextArea, Select {
         margin-bottom: 1;
     }
+    Input, TextArea, SelectCurrent, SelectOverlay {
+        background: #20252b;
+        color: #f4f7fb;
+    }
+    Input:focus, TextArea:focus, Select:focus > SelectCurrent {
+        background: #252c34;
+    }
+    Input > .input--cursor, TextArea .text-area--cursor {
+        background: #f4f7fb;
+        color: #111418;
+    }
+    Input > .input--placeholder, Input > .input--suggestion,
+    TextArea .text-area--placeholder {
+        color: #9aa4af;
+    }
+    Input > .input--selection, TextArea .text-area--selection {
+        background: #0b78d0;
+        color: #ffffff;
+    }
     Label {
         margin-top: 1;
     }
