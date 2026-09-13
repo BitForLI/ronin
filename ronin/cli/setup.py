@@ -539,7 +539,6 @@ class ResumesScreen(Screen):
                 variant="default",
             )
             yield NavFooter()
-        yield container
         yield Footer()
 
     def _resume_widgets(self, index: int, data: dict):
@@ -793,7 +792,6 @@ class BoardSetupScreen(Screen):
                         id=f"seek_id_{i}",
                     )
             yield NavFooter()
-        yield container
         yield Footer()
 
     def _collect(self) -> dict:

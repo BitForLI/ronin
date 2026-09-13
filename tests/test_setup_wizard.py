@@ -2,7 +2,7 @@
 
 import asyncio
 
-from ronin.cli.setup import SetupWizard
+from ronin.cli.setup import STEP_ORDER, SetupWizard
 
 
 def test_personal_input_renders_typed_text() -> None:
@@ -43,3 +43,18 @@ def test_skill_input_renders_typed_text() -> None:
             assert "python" in rendered
 
     asyncio.run(exercise_skill_input())
+
+
+def test_next_button_mounts_every_setup_step() -> None:
+    async def walk_wizard() -> None:
+        app = SetupWizard()
+        async with app.run_test(size=(140, 60)) as pilot:
+            await pilot.pause()
+            assert app._step_index == 0
+
+            for expected_index in range(1, len(STEP_ORDER)):
+                await pilot.click("#nav_next")
+                await pilot.pause()
+                assert app._step_index == expected_index
+
+    asyncio.run(walk_wizard())
