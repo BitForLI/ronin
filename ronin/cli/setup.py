@@ -1487,6 +1487,11 @@ class SetupWizard(App):
         min-height: 3;
         padding: 0 2;
     }
+    TextArea {
+        height: 5;
+        min-height: 5;
+        padding: 0 1;
+    }
     Input, TextArea, SelectCurrent, SelectOverlay {
         background: #20252b;
         color: #f4f7fb;
