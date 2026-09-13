@@ -1,8 +1,14 @@
 """Regression tests for the interactive setup wizard."""
 
 import asyncio
+from pathlib import Path
 
+import yaml
+
+from ronin.cli import setup as setup_cli
 from ronin.cli.setup import STEP_ORDER, SetupWizard
+from ronin.config import load_config
+from ronin.profile import load_profile
 
 
 def test_personal_input_renders_typed_text() -> None:
@@ -58,3 +64,128 @@ def test_next_button_mounts_every_setup_step() -> None:
                 assert app._step_index == expected_index
 
     asyncio.run(walk_wizard())
+
+
+def test_complete_setup_writes_reloadable_configuration(
+    tmp_path: Path, monkeypatch
+) -> None:
+    ronin_home = tmp_path / "ronin-home"
+    monkeypatch.setattr(setup_cli, "RONIN_HOME", ronin_home)
+
+    async def complete_wizard() -> None:
+        app = SetupWizard()
+        async with app.run_test(size=(160, 70)) as pilot:
+            await pilot.pause()
+            await pilot.click("#nav_next")
+
+            app.screen.query_one("#name").value = "Reese Lee"
+            app.screen.query_one("#email").value = "reese@example.com"
+            app.screen.query_one("#phone").value = "+61 400 000 000"
+            app.screen.query_one("#location").value = "Sydney, NSW"
+            await pilot.click("#nav_next")
+
+            app.screen.query_one("#citizenship").value = "Chinese"
+            app.screen.query_one("#visa_status").value = "Student visa (subclass 500)"
+            app.screen.query_one("#notice_period").value = "Immediate"
+            await pilot.click("#nav_next")
+
+            app.screen.query_one("#title").value = "Software Engineering Student"
+            app.screen.query_one("#years_experience").value = "0"
+            app.screen.query_one("#skill_core_skills").value = (
+                "Full-Stack Development, Automated Testing"
+            )
+            app.screen.query_one("#skill_tools_and_software").value = (
+                "Python, TypeScript, Docker"
+            )
+            await pilot.click("#add_skill_cat")
+            await pilot.pause()
+            app.screen.query_one("#skill_category_5").value = "Python, TypeScript"
+            await pilot.click("#nav_next")
+
+            app.screen.query_one("#high_value_signals").value = (
+                "Software engineering internship, Structured mentoring"
+            )
+            app.screen.query_one("#red_flags").value = (
+                "Australian citizenship required, Unpaid internship"
+            )
+            app.screen.query_one("#wt_part_time").value = True
+            app.screen.query_one("#arr_hybrid").value = True
+            await pilot.click("#nav_next")
+
+            app.screen.query_one("#res0_name").value = "software"
+            app.screen.query_one("#res0_text").value = "Software engineering resume"
+            app.screen.query_one("#res0_jt_part_time").value = True
+            await pilot.click("#add_resume")
+            await pilot.pause()
+            app.screen.query_one("#res1_name").value = "data"
+            app.screen.query_one("#res1_text").value = "Data engineering resume"
+            await pilot.click("#nav_next")
+
+            app.screen.query_one("#anti_slop_rules").value = (
+                "No invented metrics, Use Australian English"
+            )
+            await pilot.click("#nav_next")
+
+            app.screen.query_one("#keywords").value = (
+                "software engineering intern, graduate developer"
+            )
+            app.screen.query_one("#search_location").value = "Sydney"
+            await pilot.click("#nav_next")
+
+            app.screen.query_one("#seek_id_0").value = "seek-software-id"
+            app.screen.query_one("#seek_id_1").value = "seek-data-id"
+            await pilot.click("#nav_next")
+
+            await pilot.click("#test_connection")
+            await pilot.click("#nav_next")
+            await pilot.click("#nav_next")
+            await pilot.click("#nav_next")
+            assert app._step_index == len(STEP_ORDER) - 1
+            await pilot.click("#nav_next")
+
+    asyncio.run(complete_wizard())
+
+    profile_path = ronin_home / "profile.yaml"
+    config_path = ronin_home / "config.yaml"
+    env_path = ronin_home / ".env"
+    assert profile_path.is_file()
+    assert config_path.is_file()
+    assert env_path.is_file()
+    assert (ronin_home / "resumes" / "software.txt").read_text(
+        encoding="utf-8"
+    ) == "Software engineering resume"
+    assert (ronin_home / "resumes" / "data.txt").read_text(
+        encoding="utf-8"
+    ) == "Data engineering resume"
+
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert profile["personal"]["name"] == "Reese Lee"
+    assert profile["professional"]["skills"]["core_skills"] == [
+        "Full-Stack Development",
+        "Automated Testing",
+    ]
+    assert profile["professional"]["skills"]["category_5"] == [
+        "Python",
+        "TypeScript",
+    ]
+    assert [resume["name"] for resume in profile["resumes"]] == [
+        "software",
+        "data",
+    ]
+    assert profile["resumes"][0]["seek_resume_id"] == "seek-software-id"
+    assert config["search"]["keywords"] == [
+        "software engineering intern",
+        "graduate developer",
+    ]
+    assert config["search"]["location"] == "Sydney"
+
+    validated_profile = load_profile(profile_path)
+    monkeypatch.setenv("RONIN_HOME", str(ronin_home))
+    reloaded_config = load_config()
+    assert validated_profile.personal.name == "Reese Lee"
+    assert [resume.name for resume in validated_profile.resumes] == [
+        "software",
+        "data",
+    ]
+    assert reloaded_config["search"]["location"] == "Sydney"
