@@ -10,6 +10,7 @@ on body text and swallow the queue.
 from __future__ import annotations
 
 from ronin.analyzer.archetype_classifier import is_excluded_title
+from ronin.applier.applier import SeekApplier
 from ronin.profile import Profile, ResumeProfile, ResumeUseWhen
 
 
@@ -162,6 +163,28 @@ def test_retired_roles_are_excluded_by_title() -> None:
         assert not is_excluded_title(title), f"{title!r} should not be excluded"
 
     assert not is_excluded_title("")
+
+
+def test_single_seek_resume_needs_no_uuid() -> None:
+    only = {"value": "generated-id", "label": "Reese.pdf", "checked": True}
+    assert SeekApplier._match_resume_radio([only], "", []) is only
+
+
+def test_seek_default_is_used_without_uuid_when_multiple_resumes_exist() -> None:
+    default = {"value": "default-id", "label": "Reese.pdf", "checked": True}
+    other = {"value": "other-id", "label": "Data.pdf", "checked": False}
+    assert SeekApplier._match_resume_radio([default, other], "", []) is default
+
+
+def test_seek_resume_matching_does_not_guess_ambiguously() -> None:
+    radios = [
+        {"value": "one", "label": "Software.pdf", "checked": False},
+        {"value": "two", "label": "Data.pdf", "checked": False},
+    ]
+    assert SeekApplier._match_resume_radio(radios, "", []) is None
+    # A configured but stale UUID must not silently fall back to the default.
+    radios[0]["checked"] = True
+    assert SeekApplier._match_resume_radio(radios, "stale-id", []) is None
 
 
 if __name__ == "__main__":

@@ -167,6 +167,18 @@ class SeekApplier(BaseApplier):
             ]
             if len(hits) == 1:
                 return hits[0]
+
+        # Seek's current profile UI no longer exposes resume UUIDs in the URL.
+        # When no UUID was configured, selecting the sole resume (or the one
+        # Seek already marks as default) is deterministic and safe. Never use
+        # this fallback for a stale configured UUID: that could silently send
+        # the wrong document from a multi-resume profile.
+        if not want:
+            if len(radios) == 1:
+                return radios[0]
+            checked = [radio for radio in radios if radio.get("checked")]
+            if len(checked) == 1:
+                return checked[0]
         return None
 
     def _handle_resume(
@@ -217,12 +229,6 @@ class SeekApplier(BaseApplier):
                         f"falling back to '{rp.name}' (seek_resume_id={resume_id})"
                     )
 
-            if not resume_id:
-                raise ValueError(
-                    f"No seek_resume_id resolved for profile '{resume_profile}'. "
-                    "Check profile.yaml resumes configuration."
-                )
-
             radios = []
             for inp in container.find_elements(
                 By.CSS_SELECTOR, "input[name='document-select'][type='radio']"
@@ -268,7 +274,9 @@ class SeekApplier(BaseApplier):
             if chosen is None:
                 raise ValueError(
                     f"No resume radio matched seek_resume_id={resume_id!r} or "
-                    f"hints {hints!r}. Options: {[r['label'] for r in radios]}"
+                    f"hints {hints!r}. Options: {[r['label'] for r in radios]}. "
+                    "If multiple resumes are present, configure seek_resume_id "
+                    "or make the intended resume the Seek default."
                 )
             target = next(r for r in radios if r["value"] == chosen["value"])
 

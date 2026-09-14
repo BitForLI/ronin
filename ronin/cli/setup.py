@@ -41,6 +41,7 @@ from textual.widgets import (
 # ---------------------------------------------------------------------------
 
 RONIN_HOME = Path(os.environ.get("RONIN_HOME", Path.home() / ".ronin"))
+DRAFT_FILENAME = "setup_draft.yaml"
 
 STEP_ORDER = [
     "welcome",
@@ -59,6 +60,38 @@ STEP_ORDER = [
 ]
 
 STEP_SCREEN_MAP: dict[str, type[Screen]] = {}  # populated by _register decorator
+
+
+def _load_setup_draft() -> tuple[dict, str]:
+    """Load autosaved wizard values and the last visited step."""
+    path = RONIN_HOME / DRAFT_FILENAME
+    if not path.is_file():
+        return {}, ""
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}, ""
+    if not isinstance(payload, dict):
+        return {}, ""
+    data = payload.get("wizard_data", {})
+    step = str(payload.get("last_step", "") or "")
+    if not isinstance(data, dict):
+        return {}, step
+
+    # Keep the resume body in its normal dedicated file. A draft only needs
+    # the profile metadata; restoring it hydrates the editor from resumes/.
+    for resume in data.get("resumes", []) or []:
+        if not isinstance(resume, dict) or resume.get("text"):
+            continue
+        name = str(resume.get("name", "default") or "default")
+        filename = name.replace(" ", "_") + ".txt"
+        resume_path = RONIN_HOME / "resumes" / filename
+        if resume_path.is_file():
+            try:
+                resume["text"] = resume_path.read_text(encoding="utf-8")
+            except Exception:
+                pass
+    return data, step
 
 
 def _register(name: str):
@@ -772,9 +805,9 @@ class BoardSetupScreen(Screen):
                 "[bold]Seek.com.au[/bold]\n"
                 "1. Go to seek.com.au and log in\n"
                 "2. Upload your resumes under Profile > Resumes\n"
-                "3. Copy the resume ID from the URL when viewing each resume\n"
-                "   (e.g. https://www.seek.com.au/profile/resumes/[bold]THIS-UUID[/bold])\n"
-                "4. Paste the ID below for each resume profile\n"
+                "3. Seek's current /profile/me page may not show resume IDs in the URL\n"
+                "4. If you keep one resume, leave its ID blank; Ronin will select the\n"
+                "   sole/default resume. IDs are recommended only for multiple resumes.\n"
             )
             if not resumes:
                 yield Static(
@@ -788,7 +821,7 @@ class BoardSetupScreen(Screen):
                     yield Label(f'Seek resume ID for "{name}"')
                     yield Input(
                         value=existing_id,
-                        placeholder="paste-uuid-here",
+                        placeholder="optional for a single/default resume",
                         id=f"seek_id_{i}",
                     )
             yield NavFooter()
@@ -1407,6 +1440,7 @@ class ReviewScreen(Screen):
                 pass  # Non-fatal; user can run `ronin schedule install` later
 
         # Done
+        self.app.save_draft(last_step="review")
         self.app.exit(message=f"Configuration saved to {RONIN_HOME}")
 
 
@@ -1507,10 +1541,13 @@ class SetupWizard(App):
 
     def __init__(self, start_step: Optional[str] = None):
         super().__init__()
-        self.wizard_data: dict = {}
+        saved_data, saved_step = _load_setup_draft()
+        self.wizard_data: dict = saved_data
         self._step_index = 0
         if start_step and start_step in STEP_ORDER:
             self._step_index = STEP_ORDER.index(start_step)
+        elif saved_step in STEP_ORDER:
+            self._step_index = STEP_ORDER.index(saved_step)
 
     def on_mount(self) -> None:
         self._push_current_step()
@@ -1524,13 +1561,72 @@ class SetupWizard(App):
         if self._step_index >= len(STEP_ORDER) - 1:
             return
         self._step_index += 1
+        self.save_draft()
         self._push_current_step()
 
     def action_prev_step(self) -> None:
         if self._step_index <= 0:
             return
         self._step_index -= 1
+        self.save_draft()
         self.pop_screen()
+
+    def _collect_current_screen(self) -> None:
+        """Copy the visible screen's values into ``wizard_data`` when possible."""
+        try:
+            screen = self.screen
+            step = STEP_ORDER[self._step_index]
+            if getattr(screen, "step_name", "") != step:
+                return
+            if step == "resumes":
+                self.wizard_data[step] = screen._collect_all()
+            elif hasattr(screen, "_collect"):
+                self.wizard_data[step] = screen._collect()
+        except Exception:
+            # Widget mount/unmount can briefly leave a partial screen. The next
+            # input event, navigation action, or clean shutdown retries saving.
+            return
+
+    def save_draft(self, *, last_step: Optional[str] = None) -> None:
+        """Atomically persist setup progress so interrupted runs can resume."""
+        path = RONIN_HOME / DRAFT_FILENAME
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "version": 1,
+            "last_step": last_step or STEP_ORDER[self._step_index],
+            "wizard_data": self.wizard_data,
+        }
+        try:
+            rendered = yaml.safe_dump(
+                payload,
+                sort_keys=False,
+                default_flow_style=False,
+                allow_unicode=True,
+            )
+            temporary = path.with_suffix(path.suffix + ".tmp")
+            temporary.write_text(rendered, encoding="utf-8")
+            temporary.replace(path)
+        except Exception:
+            return
+
+    def _autosave_current_screen(self) -> None:
+        self._collect_current_screen()
+        self.save_draft()
+
+    def on_input_changed(self, _event: Input.Changed) -> None:
+        self._autosave_current_screen()
+
+    def on_checkbox_changed(self, _event: Checkbox.Changed) -> None:
+        self._autosave_current_screen()
+
+    def on_select_changed(self, _event: Select.Changed) -> None:
+        self._autosave_current_screen()
+
+    def on_radio_set_changed(self, _event: RadioSet.Changed) -> None:
+        self._autosave_current_screen()
+
+    def on_unmount(self) -> None:
+        self._autosave_current_screen()
 
 
 # ---------------------------------------------------------------------------

@@ -304,8 +304,10 @@ When the AI analyses a job, it combines archetype hints, `use_when` rules,
 and listing context to pick the best resume automatically. If AI returns an
 invalid resume name, Ronin falls back to deterministic matching.
 
-**How to find your Seek resume ID:** When you are on the Seek resume page, the
-URL contains the resume UUID. The setup wizard will guide you through this.
+**Seek resume ID:** Seek's current `/profile/me` interface may not expose a
+resume UUID in the URL. If your Seek profile contains one resume, the ID can be
+left blank and Ronin selects the sole/default resume. Configure IDs when you
+keep multiple resumes so selection remains unambiguous.
 
 ### Cover letter settings
 

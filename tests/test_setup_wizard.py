@@ -1,7 +1,10 @@
 """Regression tests for the interactive setup wizard."""
 
 import asyncio
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import yaml
 
@@ -9,6 +12,47 @@ from ronin.cli import setup as setup_cli
 from ronin.cli.setup import STEP_ORDER, SetupWizard
 from ronin.config import load_config
 from ronin.profile import load_profile
+
+
+def test_python_module_entrypoint_runs(tmp_path: Path) -> None:
+    env = dict(os.environ)
+    env["RONIN_HOME"] = str(tmp_path / "module-home")
+    result = subprocess.run(
+        [sys.executable, "-m", "ronin", "--help"],
+        cwd=Path(__file__).parents[1],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Ronin" in result.stdout
+
+
+def test_personal_fields_autosave_and_restore(
+    tmp_path: Path, monkeypatch
+) -> None:
+    ronin_home = tmp_path / "autosave-home"
+    monkeypatch.setattr(setup_cli, "RONIN_HOME", ronin_home)
+
+    async def enter_personal_data() -> None:
+        app = SetupWizard(start_step="personal")
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.screen.query_one("#name").value = "Reese Lee"
+            app.screen.query_one("#email").value = "reese@example.com"
+            await pilot.pause()
+
+    asyncio.run(enter_personal_data())
+
+    draft_path = ronin_home / "setup_draft.yaml"
+    draft = yaml.safe_load(draft_path.read_text(encoding="utf-8"))
+    assert draft["last_step"] == "personal"
+    assert draft["wizard_data"]["personal"]["name"] == "Reese Lee"
+
+    restored = SetupWizard()
+    assert restored._step_index == STEP_ORDER.index("personal")
+    assert restored.wizard_data["personal"]["email"] == "reese@example.com"
 
 
 def test_personal_input_renders_typed_text() -> None:
@@ -53,7 +97,7 @@ def test_skill_input_renders_typed_text() -> None:
 
 def test_next_button_mounts_every_setup_step() -> None:
     async def walk_wizard() -> None:
-        app = SetupWizard()
+        app = SetupWizard(start_step="welcome")
         async with app.run_test(size=(140, 60)) as pilot:
             await pilot.pause()
             assert app._step_index == 0
@@ -73,7 +117,7 @@ def test_complete_setup_writes_reloadable_configuration(
     monkeypatch.setattr(setup_cli, "RONIN_HOME", ronin_home)
 
     async def complete_wizard() -> None:
-        app = SetupWizard()
+        app = SetupWizard(start_step="welcome")
         async with app.run_test(size=(160, 70)) as pilot:
             await pilot.pause()
             await pilot.click("#nav_next")
