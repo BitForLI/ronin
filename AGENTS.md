@@ -117,7 +117,7 @@ ronin/
 │   ├── config.py                # Config loader (supports ~/.ronin/ and project root)
 │   ├── profile.py               # Pydantic profile loader/validator
 │   ├── db.py                    # SQLite database manager
-│   ├── ai.py                    # AI service wrappers (OpenAI, Anthropic)
+│   ├── ai.py                    # Subscription-backed Codex service
 │   ├── scheduler.py             # Cross-platform OS scheduling
 │   ├── cli/                     # CLI commands
 │   │   ├── main.py              # Entry point: ronin {setup,search,apply,status,schedule}
@@ -155,7 +155,7 @@ ronin/
 ~/.ronin/                        # Created by `ronin setup`
 ├── profile.yaml                 # User's personal profile
 ├── config.yaml                  # Runtime configuration
-├── .env                         # API keys
+├── .env                         # Optional integration settings
 ├── resumes/                     # Resume text files
 ├── assets/                      # Cover letter examples, highlights
 ├── data/
@@ -172,9 +172,7 @@ ronin/
 |-----------|------------|-------|
 | Language | Python 3.11+ | Single language for everything |
 | Database | SQLite | Local, zero-config, in `~/.ronin/data/` |
-| AI (Analysis) | Anthropic Claude | Job scoring, resume selection, classification |
-| AI (Forms) | OpenAI GPT | Screening question answers |
-| AI (Cover Letters) | Anthropic Claude | Tailored cover letter generation |
+| AI (All tasks) | Codex with ChatGPT login | Uses the user's included Codex plan allowance |
 | Browser Automation | Selenium + ChromeDriver | Fills forms, submits applications |
 | TUI | Textual | Interactive setup wizard |
 | Console | Rich | Status dashboard, progress bars |
@@ -282,10 +280,6 @@ SQLite database at `~/.ronin/data/ronin.db`. Key tables:
 Stored in `~/.ronin/.env` (created by `ronin setup`):
 
 ```bash
-# AI Providers (at least one required)
-ANTHROPIC_API_KEY=sk-ant-api03-...
-OPENAI_API_KEY=sk-...
-
 # Notifications (optional)
 SLACK_WEBHOOK_URL=
 
@@ -378,7 +372,7 @@ make test       # Verify imports
        enabled: true
    ```
 
-5. Add any API keys to `.env.example`
+5. Add any optional integration settings to `.env.example`
 
 ---
 

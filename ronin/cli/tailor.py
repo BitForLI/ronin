@@ -83,17 +83,11 @@ def _load_job(
 
 
 def _ai_writer(provider: str) -> Any:
-    if provider == "openai":
-        from ronin.ai import AIService
+    if provider in {"codex", "openai", "anthropic"}:
+        from ronin.ai import CodexService
 
-        return AIService()
-    if provider == "anthropic":
-        from ronin.ai import AnthropicService
-
-        return AnthropicService()
-    raise JobSpecificResumeError(
-        f"Unsupported AI provider {provider!r}; use anthropic or openai"
-    )
+        return CodexService(default_model="gpt-5.6-terra", reasoning_effort="low")
+    raise JobSpecificResumeError(f"Unsupported AI provider {provider!r}; use codex")
 
 
 def _show_matches(matches: list[Dict[str, Any]]) -> None:

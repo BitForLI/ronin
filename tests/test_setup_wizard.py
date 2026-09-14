@@ -2,9 +2,9 @@
 
 import asyncio
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import yaml
 
@@ -29,9 +29,7 @@ def test_python_module_entrypoint_runs(tmp_path: Path) -> None:
     assert "Ronin" in result.stdout
 
 
-def test_personal_fields_autosave_and_restore(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_personal_fields_autosave_and_restore(tmp_path: Path, monkeypatch) -> None:
     ronin_home = tmp_path / "autosave-home"
     monkeypatch.setattr(setup_cli, "RONIN_HOME", ronin_home)
 
@@ -115,6 +113,10 @@ def test_complete_setup_writes_reloadable_configuration(
 ) -> None:
     ronin_home = tmp_path / "ronin-home"
     monkeypatch.setattr(setup_cli, "RONIN_HOME", ronin_home)
+    monkeypatch.setattr(
+        "ronin.ai.CodexService.account_status",
+        staticmethod(lambda: (True, "Signed in with ChatGPT")),
+    )
 
     async def complete_wizard() -> None:
         app = SetupWizard(start_step="welcome")
@@ -218,6 +220,8 @@ def test_complete_setup_writes_reloadable_configuration(
         "data",
     ]
     assert profile["resumes"][0]["seek_resume_id"] == "seek-software-id"
+    assert profile["ai"]["analysis_provider"] == "codex"
+    assert profile["ai"]["cover_letter_model"] == "gpt-5.6-terra"
     assert config["search"]["keywords"] == [
         "software engineering intern",
         "graduate developer",

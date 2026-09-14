@@ -1,12 +1,11 @@
-"""Service for analyzing job postings using Anthropic Claude."""
+"""Service for analyzing job postings using the local Codex subscription."""
 
 import threading
 from typing import Dict, Optional
 
-import anthropic
 from loguru import logger
 
-from ronin.ai import _parse_json_response
+from ronin.ai import CodexService
 from ronin.analyzer.archetype_classifier import ArchetypeClassifier
 from ronin.feedback.analysis import OutcomeAnalytics
 from ronin.profile import Profile, load_profile
@@ -17,12 +16,14 @@ ARCHETYPE_PROFILES = {"builder", "fixer", "operator", "translator"}
 
 
 class JobAnalyzerService:
-    """Service for analyzing job postings using Anthropic Claude."""
+    """Service for analyzing job postings using Codex."""
 
     def __init__(self, config: Dict, client=None):
         self.config = config
-        self.client = client or anthropic.Anthropic()
-        self.model = "claude-sonnet-4-6"
+        self.ai_service = client or CodexService(
+            default_model="gpt-5.6-luna", reasoning_effort="low"
+        )
+        self.model = "gpt-5.6-luna"
         self.profile: Optional[Profile] = None
         self._feedback_context = ""
         # analyze_job runs concurrently across threads; the embedding model is a
@@ -41,8 +42,9 @@ class JobAnalyzerService:
             self.profile = load_profile()
             self._system_prompt = generate_job_analysis_prompt(self.profile)
             # Use model from profile if configured
-            if self.profile.ai.analysis_model:
-                self.model = self.profile.ai.analysis_model
+            configured_model = self.profile.ai.analysis_model or ""
+            if configured_model.startswith(("gpt-5.6-", "gpt-6-")):
+                self.model = configured_model
             logger.debug(f"Using dynamic prompt from profile (model: {self.model})")
         except FileNotFoundError:
             self._system_prompt = JOB_ANALYSIS_PROMPT
@@ -168,7 +170,7 @@ class JobAnalyzerService:
 
     def analyze_job(self, job_data: Dict) -> Optional[Dict]:
         """
-        Analyze a job posting using Anthropic Claude.
+        Analyze a job posting using the user's authenticated Codex account.
 
         Args:
             job_data: Dictionary containing job information with a description field
@@ -190,7 +192,8 @@ class JobAnalyzerService:
 
         try:
             logger.debug(
-                f"Making Anthropic API call for job {job_id} ({job_title}) using model: {self.model}"
+                f"Making Codex call for job {job_id} ({job_title}) "
+                f"using model: {self.model}"
             )
 
             rule_based_resume = self._rule_based_resume_hint(job_data)
@@ -205,35 +208,21 @@ class JobAnalyzerService:
                     f"Rule-based resume recommendation (heuristic): {rule_based_resume}"
                 )
 
-            response = self.client.messages.create(
+            analysis = self.ai_service.chat_completion(
+                system_prompt=self._system_prompt,
+                user_message="\n\n".join(user_prompt),
                 model=self.model,
+                temperature=0.2,
                 max_tokens=1024,
-                system=self._system_prompt
-                + "\n\nIMPORTANT: Your response MUST be a valid JSON object only, no other text.",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": "\n\n".join(user_prompt),
-                    },
-                ],
             )
 
-            if not response:
+            if not analysis:
                 logger.error(
-                    f"Failed to get analysis from Anthropic for job {job_id} ({job_title})"
+                    f"Failed to get analysis from Codex for job {job_id} ({job_title})"
                 )
                 return None
 
-            content = response.content[0].text
-            logger.debug(f"Received response from Anthropic for job {job_id}")
-
-            try:
-                analysis = _parse_json_response(content)
-            except Exception as e:
-                logger.error(f"Failed to parse JSON for job {job_id}: {e}")
-                return None
-            if analysis is None:
-                return None
+            logger.debug(f"Received response from Codex for job {job_id}")
 
             resolved_resume_profile = self._resolve_resume_profile(job_data, analysis)
             self._enrich_with_archetype_signals(job_data, analysis)
@@ -298,9 +287,6 @@ class JobAnalyzerService:
 
             return enriched_job
 
-        except anthropic.APIError as e:
-            logger.error(f"Anthropic API error for job {job_id}: {e}")
-            return None
         except Exception as e:
             logger.exception(f"Error analyzing job {job_id} ({job_title}): {str(e)}")
             return None

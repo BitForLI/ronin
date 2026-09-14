@@ -68,9 +68,7 @@ class SeekApplier(BaseApplier):
             except Exception as e:
                 logger.warning(f"Could not load profile: {e}")
         self.ai_service = AIService()
-        self.cover_letter_generator = (
-            CoverLetterGenerator()
-        )  # Uses Anthropic internally
+        self.cover_letter_generator = CoverLetterGenerator(ai_service=self.ai_service)
         self.question_handler = QuestionAnswerHandler(self.ai_service, self.config)
         self.chrome_driver = ChromeDriver()
         self.current_key_tools = None

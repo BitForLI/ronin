@@ -44,7 +44,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import yaml
 from loguru import logger
 
-from ronin.ai import AnthropicService
+from ronin.ai import CodexService
 from ronin.config import get_ronin_home, load_config
 from ronin.resume_variants import ResumeVariantManager
 
@@ -337,7 +337,7 @@ _INGEST_SYSTEM = (
 )
 
 
-def ingest_log(config: Dict[str, Any], brain: AnthropicService) -> bool:
+def ingest_log(config: Dict[str, Any], brain: CodexService) -> bool:
     """Fold unprocessed log notes into source.yml. Returns True if it changed."""
     notes = _read_unprocessed_log(config)
     if not notes:
@@ -525,7 +525,7 @@ def _load_pole(config: Dict[str, Any]) -> str:
 
 
 def tune_variant(
-    config: Dict[str, Any], brain: AnthropicService, variant: str
+    config: Dict[str, Any], brain: CodexService, variant: str
 ) -> Tuple[bool, Path]:
     """Rewrite the variant yaml's prose from source. Returns (changed, path)."""
     if variant in FROZEN_VARIANTS:
@@ -828,7 +828,7 @@ def _render_summary(source: Dict[str, Any], template: str) -> str:
 
 def _brain_model(config: Dict[str, Any]) -> str:
     return str(
-        (config.get("agent_apply", {}) or {}).get("brain_model") or "claude-opus-4-8"
+        (config.get("agent_apply", {}) or {}).get("brain_model") or "gpt-5.6-terra"
     )
 
 
@@ -944,7 +944,7 @@ def regen(
         logger.info("[resume] source unchanged since last regen — skipping")
         return {"skipped": True, "reason": "unchanged", "variants": targets}
 
-    brain = AnthropicService()
+    brain = CodexService(default_model="gpt-5.6-terra", reasoning_effort="low")
 
     ingested = ingest_log(config, brain)
 

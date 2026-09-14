@@ -169,7 +169,7 @@ Automated Job Search & Application
                 f"[bold]{RONIN_HOME}[/bold]:\n"
                 "  - profile.yaml  (your personal info, skills, preferences)\n"
                 "  - config.yaml   (search parameters, runtime settings)\n"
-                "  - .env          (API keys)\n"
+                "  - .env          (optional integrations)\n"
                 "  - resumes/      (plain-text resume files)\n"
                 "  - assets/       (cover letter examples, highlights)\n",
             ),
@@ -177,7 +177,7 @@ Automated Job Search & Application
             Static(
                 "  - Python 3.11+\n"
                 "  - Google Chrome (or Chrome for Testing)\n"
-                "  - An Anthropic or OpenAI API key\n"
+                "  - Codex signed in with your ChatGPT account\n"
                 "  - A Seek.com.au account with uploaded resumes\n",
             ),
             Static(
@@ -849,31 +849,20 @@ class BoardSetupScreen(Screen):
 
 
 @_register("api_keys")
-class APIKeysScreen(Screen):
-    """API key entry and optional connection test."""
+class CodexAccessScreen(Screen):
+    """Check subscription-backed Codex access and optional integrations."""
 
     def compose(self) -> ComposeResult:
         data = self.app.wizard_data.get("api_keys", {})
         yield Header()
         yield ScrollableContainer(
-            Static("[bold]API Keys[/bold]\n", classes="section-header"),
+            Static("[bold]Codex Access[/bold]\n", classes="section-header"),
             Static(
-                "These are stored in [bold]~/.ronin/.env[/bold] and never "
-                "committed to version control.\n"
-            ),
-            Label("Anthropic API key"),
-            Input(
-                value=data.get("ANTHROPIC_API_KEY", ""),
-                placeholder="sk-ant-...",
-                password=True,
-                id="anthropic_key",
-            ),
-            Label("OpenAI API key"),
-            Input(
-                value=data.get("OPENAI_API_KEY", ""),
-                placeholder="sk-...",
-                password=True,
-                id="openai_key",
+                "Ronin uses the Codex account already signed in on this computer. "
+                "Usage comes from your ChatGPT/Codex plan; no OpenAI or Anthropic "
+                "API key is required.\n\n"
+                "If the check says you are signed out, run [bold]codex login[/bold] "
+                "once in PowerShell.\n"
             ),
             Label("Slack webhook URL (optional)"),
             Input(
@@ -882,7 +871,7 @@ class APIKeysScreen(Screen):
                 id="slack_webhook",
             ),
             Static(""),
-            Button("Test Connection", id="test_connection", variant="warning"),
+            Button("Check Codex Login", id="test_connection", variant="warning"),
             Static("", id="test_result"),
             NavFooter(),
         )
@@ -890,14 +879,12 @@ class APIKeysScreen(Screen):
 
     def _collect(self) -> dict:
         return {
-            "ANTHROPIC_API_KEY": self.query_one("#anthropic_key", Input).value.strip(),
-            "OPENAI_API_KEY": self.query_one("#openai_key", Input).value.strip(),
             "SLACK_WEBHOOK_URL": self.query_one("#slack_webhook", Input).value.strip(),
         }
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "test_connection":
-            self._test_keys()
+            self._test_codex()
         elif event.button.id == "nav_next":
             self.app.wizard_data["api_keys"] = self._collect()
             self.app.action_next_step()
@@ -905,46 +892,13 @@ class APIKeysScreen(Screen):
             self.app.wizard_data["api_keys"] = self._collect()
             self.app.action_prev_step()
 
-    def _test_keys(self) -> None:
+    def _test_codex(self) -> None:
+        from ronin.ai import CodexService
+
         result_widget = self.query_one("#test_result", Static)
-        keys = self._collect()
-        results: list[str] = []
-
-        anthropic_key = keys.get("ANTHROPIC_API_KEY", "")
-        if anthropic_key:
-            try:
-                import anthropic
-
-                client = anthropic.Anthropic(api_key=anthropic_key)
-                client.messages.create(
-                    model="claude-sonnet-4-6",
-                    max_tokens=10,
-                    messages=[{"role": "user", "content": "ping"}],
-                )
-                results.append("[green]Anthropic: OK[/green]")
-            except Exception as exc:
-                results.append(f"[red]Anthropic: {exc}[/red]")
-        else:
-            results.append("[yellow]Anthropic: skipped (no key)[/yellow]")
-
-        openai_key = keys.get("OPENAI_API_KEY", "")
-        if openai_key:
-            try:
-                from openai import OpenAI
-
-                client = OpenAI(api_key=openai_key)
-                client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    max_tokens=10,
-                    messages=[{"role": "user", "content": "ping"}],
-                )
-                results.append("[green]OpenAI: OK[/green]")
-            except Exception as exc:
-                results.append(f"[red]OpenAI: {exc}[/red]")
-        else:
-            results.append("[yellow]OpenAI: skipped (no key)[/yellow]")
-
-        result_widget.update("\n".join(results))
+        ok, message = CodexService.account_status()
+        colour = "green" if ok else "red"
+        result_widget.update(f"[{colour}]{message}[/{colour}]")
 
 
 @_register("browser")
@@ -1162,12 +1116,12 @@ class ReviewScreen(Screen):
         else:
             log.write("  (no board IDs configured)")
 
-        # API Keys
+        # Codex access / optional integrations
         api = data.get("api_keys", {})
-        log.write("\n[bold]API Keys[/bold]")
-        for k, v in api.items():
-            masked = v[:8] + "..." if v and len(v) > 8 else "(not set)"
-            log.write(f"  {k}: {masked}")
+        log.write("\n[bold]AI Access[/bold]")
+        log.write("  provider: Codex (ChatGPT subscription)")
+        webhook = api.get("SLACK_WEBHOOK_URL", "")
+        log.write(f"  Slack webhook: {'configured' if webhook else '(not set)'}")
 
         # Browser
         browser = data.get("browser", {})
@@ -1245,12 +1199,12 @@ class ReviewScreen(Screen):
             "resumes": resumes_list,
             "cover_letter": data.get("cover_letter", {}),
             "ai": {
-                "analysis_provider": "anthropic",
-                "analysis_model": "claude-sonnet-4-6",
-                "cover_letter_provider": "anthropic",
-                "cover_letter_model": "claude-opus-4-8",
-                "form_filling_provider": "openai",
-                "form_filling_model": "gpt-4o",
+                "analysis_provider": "codex",
+                "analysis_model": "gpt-5.6-luna",
+                "cover_letter_provider": "codex",
+                "cover_letter_model": "gpt-5.6-terra",
+                "form_filling_provider": "codex",
+                "form_filling_model": "gpt-5.6-luna",
             },
         }
 
@@ -1410,10 +1364,10 @@ class ReviewScreen(Screen):
             )
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
-        # -- .env --
+        # -- .env (optional integrations only; AI uses Codex login) --
         api_keys = data.get("api_keys", {})
         env_lines = []
-        for key in ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "SLACK_WEBHOOK_URL"]:
+        for key in ["SLACK_WEBHOOK_URL"]:
             val = api_keys.get(key, "")
             env_lines.append(f"{key}={val}")
 

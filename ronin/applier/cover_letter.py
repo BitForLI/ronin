@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 
 from loguru import logger
 
-from ronin.ai import AnthropicService
+from ronin.ai import CodexService
 from ronin.prompts import (
     COVER_LETTER_CONTRACT_CONTEXT,
     COVER_LETTER_FULLTIME_CONTEXT,
@@ -23,14 +23,16 @@ except ImportError:
 class CoverLetterGenerator:
     """Handles the generation of cover letters for job applications."""
 
-    def __init__(self, ai_service: Optional[AnthropicService] = None):
+    def __init__(self, ai_service: Optional[CodexService] = None):
         """
         Initialize the cover letter generator.
 
         Args:
-            ai_service: An instance of AnthropicService. If None, a new instance will be created.
+            ai_service: A Codex service. If None, a new instance will be created.
         """
-        self.ai_service = ai_service or AnthropicService()
+        self.ai_service = ai_service or CodexService(
+            default_model="gpt-5.6-terra", reasoning_effort="low"
+        )
 
         self.profile = None
         self.model: Optional[str] = None
@@ -41,12 +43,17 @@ class CoverLetterGenerator:
             except Exception as e:
                 logger.debug(f"Profile not available, using legacy prompts: {e}")
 
-        # Without this the request falls through to AnthropicService's own
-        # default, which is not the model the user configured.
+        # Old profiles may contain an API-only Claude model. Migrate those at
+        # runtime without forcing the user through setup again.
         try:
-            self.model = self.profile.ai.cover_letter_model or None
+            configured = self.profile.ai.cover_letter_model or ""
+            self.model = (
+                configured
+                if configured.startswith(("gpt-5.6-", "gpt-6-"))
+                else "gpt-5.6-terra"
+            )
         except Exception:
-            self.model = None
+            self.model = "gpt-5.6-terra"
 
     def generate_cover_letter(
         self,

@@ -160,26 +160,12 @@ be linked to a Google account.
 To upload resumes on Seek: log in at https://www.seek.com.au, go to
 Profile > Resumes, and upload your resume files there.
 
-### 4. At least one AI API key
+### 4. Codex signed in with ChatGPT
 
-Ronin uses AI to score jobs, write cover letters, and answer screening
-questions. You need an API key from at least one of these providers:
-
-**Anthropic (Claude) -- recommended:**
-- Go to https://console.anthropic.com/
-- Create an account and add a payment method
-- Go to API Keys and create a new key
-- Copy the key (it starts with `sk-ant-`)
-
-**OpenAI (GPT):**
-- Go to https://platform.openai.com/
-- Create an account and add a payment method
-- Go to API Keys and create a new key
-- Copy the key (it starts with `sk-`)
-
-**What these cost:** Typical usage runs about $5-20 per month depending on how
-many jobs you search and apply to. Each job analysis costs a fraction of a cent.
-Cover letters cost slightly more. You only pay for what you use.
+Ronin uses the official Codex local runtime to score jobs, write cover letters,
+tailor project bullets, and answer screening questions. Run `codex login` once
+and choose **Sign in with ChatGPT**. Usage follows the Codex allowance included
+with your ChatGPT plan; no OpenAI or Anthropic API key is required.
 
 ---
 
@@ -319,17 +305,12 @@ skills").
 You can also provide an example cover letter and a highlights file in
 `~/.ronin/assets/` for the AI to reference.
 
-### AI provider configuration
+### AI configuration
 
-Which AI provider and model to use for each task:
-- Job analysis and scoring (default: Claude)
-- Cover letter generation (default: Claude)
-- Screening question answers (default: GPT-4o)
-
-### API keys
-
-Your Anthropic and/or OpenAI API keys are stored in `~/.ronin/.env`. The
-wizard will prompt you to enter them.
+All AI tasks run through the Codex account signed in on the computer. Job
+analysis and form answers default to the efficient Luna model; tailored resume
+content and cover letters default to Terra. The setup wizard checks the login
+without making a paid API request.
 
 ---
 
@@ -677,11 +658,10 @@ See `config.yaml` in the repo root for a fully commented example.
 
 ### Environment Variables (.env)
 
-API keys and credentials. Never committed to version control.
+Optional integration settings. Never committed to version control.
 
 ```
-ANTHROPIC_API_KEY=sk-ant-api03-your-key-here
-OPENAI_API_KEY=sk-your-key-here
+SLACK_WEBHOOK_URL=
 
 # Optional: use a remote Postgres DB (for split local/remote worker)
 # RONIN_DB_BACKEND=postgres
@@ -701,7 +681,7 @@ Everything lives under `~/.ronin/` (your home directory):
 ~/.ronin/
   config.yaml          # Runtime configuration
   profile.yaml         # Your personal profile
-  .env                 # API keys and credentials
+  .env                 # Optional integration settings
   resumes/             # Plain-text resume files
     default.txt
     contract.txt
@@ -728,16 +708,15 @@ You have not run setup yet. Run:
 ronin setup
 ```
 
-### "ANTHROPIC_API_KEY not set" or "OPENAI_API_KEY not set"
+### "Not signed in" or a Codex authentication error
 
-Your `.env` file is missing or does not contain the required key. Check that
-`~/.ronin/.env` exists and has your API key. You can re-run setup to fix this:
+Sign in once with the same ChatGPT account used for your subscription:
 
 ```
-ronin setup --step api
+codex login
 ```
 
-Or edit `~/.ronin/.env` directly in any text editor.
+Then run `ronin setup --step api_keys` and select **Check Codex Login**.
 
 ### Chrome will not open
 
@@ -828,7 +807,7 @@ ronin/
   config.py             # Configuration loading (~/.ronin/config.yaml)
   profile.py            # Profile loading and validation (Pydantic)
   db.py                 # SQLite database manager
-  ai.py                 # AI service abstraction (Anthropic + OpenAI)
+  ai.py                 # Subscription-backed Codex service
   scheduler.py          # Cross-platform scheduling (launchd/schtasks/cron)
 ```
 

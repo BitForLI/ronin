@@ -131,7 +131,7 @@ agent_apply:
                                # to false (or use --live) only when confident.
   max_steps: 14                # Max page transitions per application
   step_pause_seconds: 2.0      # Settle time after each action
-  brain_model: "claude-opus-4-8"     # LLM driving navigation decisions
+  brain_model: "gpt-5.6-terra"       # Codex model driving navigation decisions
   resume_pdf_dir: "resume/pdf"       # Where built resume PDFs live (for upload)
   resume_pdf_map: {}                 # Optional archetype -> pdf filename overrides
   account_creation: false      # Phase 3: register accounts on gated ATSes

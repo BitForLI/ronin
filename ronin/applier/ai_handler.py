@@ -71,10 +71,10 @@ class AIResponseHandler:
             response = self.ai_service.chat_completion(
                 system_prompt=system_prompt, user_message=user_message, temperature=0.3
             )
-            logger.debug(f"OpenAI API call took {time.time() - api_start:.3f}s")
+            logger.debug(f"Codex call took {time.time() - api_start:.3f}s")
 
             if not response:
-                logger.error("No response received from OpenAI")
+                logger.error("No response received from Codex")
                 return None
 
             logger.debug(f"AI response for {element_info['type']}: {response}")
@@ -110,7 +110,7 @@ class AIResponseHandler:
             )
 
             if not response:
-                logger.error("No response received from OpenAI (validation retry)")
+                logger.error("No response received from Codex (validation retry)")
                 return None
 
             return self._process_ai_response(

@@ -235,13 +235,13 @@ cover_letter:
 # -----------------------------------------------------------------------------
 ai:
   # Job analysis (scoring, classification, resume selection)
-  analysis_provider: "anthropic"             # "anthropic" or "openai"
-  analysis_model: "claude-sonnet-4-20250514"
+  analysis_provider: "codex"
+  analysis_model: "gpt-5.6-luna"
 
   # Cover letter generation
-  cover_letter_provider: "anthropic"
-  cover_letter_model: "claude-sonnet-4-20250514"
+  cover_letter_provider: "codex"
+  cover_letter_model: "gpt-5.6-terra"
 
   # Screening question answers
-  form_filling_provider: "openai"
-  form_filling_model: "gpt-4o"
+  form_filling_provider: "codex"
+  form_filling_model: "gpt-5.6-luna"

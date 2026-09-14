@@ -129,12 +129,12 @@ class CoverLetterConfig(BaseModel):
 class AIConfig(BaseModel):
     """AI provider and model configuration."""
 
-    analysis_provider: str = "anthropic"
-    analysis_model: str = "claude-sonnet-4-6"
-    cover_letter_provider: str = "anthropic"
-    cover_letter_model: str = "claude-opus-4-8"
-    form_filling_provider: str = "openai"
-    form_filling_model: str = "gpt-4o"
+    analysis_provider: str = "codex"
+    analysis_model: str = "gpt-5.6-luna"
+    cover_letter_provider: str = "codex"
+    cover_letter_model: str = "gpt-5.6-terra"
+    form_filling_provider: str = "codex"
+    form_filling_model: str = "gpt-5.6-luna"
 
 
 class Profile(BaseModel):

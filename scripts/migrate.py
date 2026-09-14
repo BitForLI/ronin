@@ -200,12 +200,12 @@ def build_profile() -> dict:
         },
         # AI Provider Configuration
         "ai": {
-            "analysis_provider": "anthropic",
-            "analysis_model": "claude-sonnet-4-20250514",
-            "cover_letter_provider": "anthropic",
-            "cover_letter_model": "claude-sonnet-4-20250514",
-            "form_filling_provider": "openai",
-            "form_filling_model": "gpt-4o",
+            "analysis_provider": "codex",
+            "analysis_model": "gpt-5.6-luna",
+            "cover_letter_provider": "codex",
+            "cover_letter_model": "gpt-5.6-terra",
+            "form_filling_provider": "codex",
+            "form_filling_model": "gpt-5.6-luna",
         },
     }
 
@@ -270,9 +270,7 @@ def build_env(env_vars: dict) -> str:
         "# Ronin - Environment Variables",
         "# Migrated from project .env",
         "",
-        "# AI Providers",
-        f"ANTHROPIC_API_KEY={env_vars.get('ANTHROPIC_API_KEY', 'sk-ant-api03-your-key-here')}",
-        f"OPENAI_API_KEY={env_vars.get('OPENAI_API_KEY', 'sk-your-key-here')}",
+        "# AI uses Codex authenticated with ChatGPT; no API key is required.",
         "",
         "# Google (for Seek login)",
         f"GOOGLE_EMAIL={env_vars.get('GOOGLE_EMAIL', '')}",
@@ -384,7 +382,7 @@ def migrate(ronin_home: Path, dry_run: bool = False):
 
     if dry_run:
         print(f"  Would write: {profile_path}")
-        print(f"  Preview (first 20 lines):")
+        print("  Preview (first 20 lines):")
         for line in profile_content.split("\n")[:20]:
             print(f"    {line}")
     else:
@@ -439,7 +437,7 @@ def migrate(ronin_home: Path, dry_run: bool = False):
     existing_db = Path("data/ronin.db")
     dest_db = ronin_home / "data" / "ronin.db"
     if existing_db.exists() and not dest_db.exists():
-        print(f"\n[bonus] Copying existing database...")
+        print("\n[bonus] Copying existing database...")
         if dry_run:
             print(f"  Would copy: {existing_db} -> {dest_db}")
         else:
