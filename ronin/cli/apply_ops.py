@@ -21,13 +21,6 @@ from ronin.analyzer.archetype_classifier import (
 from ronin.application_queue import ApplicationQueueService
 from ronin.applier import SeekApplier
 from ronin.config import load_config, load_env
-from ronin.contact_intel import (
-    RecruiterIntelService,
-    build_linkedin_dm_message,
-    build_linkedin_lookup_url,
-    build_outreach_email,
-    write_linkedin_dm_draft,
-)
 from ronin.db import get_db_manager
 from ronin.feedback.drift import DriftEngine, run_weekly_drift_jobs
 
@@ -796,7 +789,11 @@ def batch_apply(
     resume_commit_hash = (
         selected_variant.get("current_commit_hash") if selected_variant else None
     )
-    seek_profile_override = archetype
+    variants_enabled = bool(
+        (config.get("resume_variants", {}) or {}).get("enabled", True)
+    )
+    precision_enabled = bool(config.get("precision_apply", {}).get("enabled", False))
+    seek_profile_override = archetype if variants_enabled else "default"
 
     jobs = db.get_queued_jobs(archetype=archetype, limit=limit)
     if not jobs:
@@ -820,7 +817,9 @@ def batch_apply(
         .get("automation", {})
         .get("enabled", False)
     )
-    should_auto_profile = bool(auto_profile or seek_auto_enabled)
+    should_auto_profile = (
+        bool(auto_profile or seek_auto_enabled) and not precision_enabled
+    )
 
     if should_auto_profile:
         console.print(
@@ -832,10 +831,20 @@ def batch_apply(
             "Keep it open until Ronin finishes the update.[/dim]"
         )
     else:
-        console.print(
-            "\n[bold]Seek profile state check:[/bold] "
-            f"set your Seek profile to [cyan]{archetype}[/cyan] before continuing."
-        )
+        if precision_enabled:
+            console.print(
+                "\n[bold]Resume:[/bold] generating and uploading a job-specific PDF for every role."
+            )
+        elif variants_enabled:
+            console.print(
+                "\n[bold]Seek profile state check:[/bold] "
+                f"set your Seek profile to [cyan]{archetype}[/cyan] before continuing."
+            )
+        else:
+            console.print(
+                "\n[bold]Resume:[/bold] using your saved "
+                "[cyan]default[/cyan] SEEK resume."
+            )
 
     if not yes and not Confirm.ask("Continue with this batch?", default=False):
         console.print("[yellow]Batch cancelled.[/yellow]")
@@ -893,7 +902,7 @@ def batch_apply(
         db=db,
         profile_state=archetype,
         batch_id=batch_id,
-        resume_variant_sent=archetype,
+        resume_variant_sent=seek_profile_override,
         resume_commit_hash=resume_commit_hash,
         resume_profile_override=seek_profile_override,
     )
@@ -912,9 +921,10 @@ def batch_apply(
     console.print()
     console.print(table)
     console.print(
-        f"\n[green]Applied to {results['applied']} {archetype} roles.[/green] "
-        "Wait 3-5 days before switching profile to next archetype."
+        f"\n[green]Applied to {results['applied']} {archetype} roles.[/green]"
     )
+    if variants_enabled and not precision_enabled:
+        console.print("Wait 3-5 days before switching profile to next archetype.")
 
     db.close()
     return 0 if results["failed"] == 0 else 1
@@ -1154,6 +1164,14 @@ def manage_contacts(
     seed_recruiter_company: str = "",
 ) -> int:
     """Run recruiter contact extraction and show/send ranked outreach targets."""
+    from ronin.contact_intel import (
+        RecruiterIntelService,
+        build_linkedin_dm_message,
+        build_linkedin_lookup_url,
+        build_outreach_email,
+        write_linkedin_dm_draft,
+    )
+
     load_env()
     config = load_config()
     db = get_db_manager(config=config)
@@ -1548,8 +1566,21 @@ def _apply_records(
             raise RuntimeError("Seek login required. Refresh session and retry.")
 
         for record in jobs:
+            from ronin.cli.tailor import prepare_application_resume
+
+            try:
+                prepared = prepare_application_resume(
+                    record, db, load_config(), ai_service=applier.ai_service
+                )
+            except Exception as exc:
+                failed += 1
+                db.update_record(record["id"], {"status": "APP_ERROR"})
+                console.print(
+                    f"[red]Tailoring stopped application:[/red] {record.get('title', '')}: {exc}"
+                )
+                continue
             resolved_profile = str(resume_profile_override or "").strip().lower()
-            if resolved_profile not in ARCHETYPE_PROFILES:
+            if not resolved_profile:
                 job_archetype = (
                     str(
                         record.get("resume_archetype")
@@ -1559,9 +1590,7 @@ def _apply_records(
                     .strip()
                     .lower()
                 )
-                resolved_profile = (
-                    job_archetype if job_archetype in ARCHETYPE_PROFILES else "builder"
-                )
+                resolved_profile = job_archetype or "default"
 
             result = applier.apply_to_job(
                 job_id=record.get("job_id", ""),
@@ -1572,23 +1601,26 @@ def _apply_records(
                 title=record.get("title", ""),
                 resume_profile=resolved_profile,
                 work_type=record.get("work_type", ""),
+                **prepared,
             )
 
             if result == "APPLIED":
+                sent_variant = "job-specific" if prepared else resume_variant_sent
+                sent_commit = None if prepared else resume_commit_hash
                 applied += 1
                 db.update_record(record["id"], {"status": "APPLIED"})
                 db.mark_job_applied(
                     record_id=int(record["id"]),
                     batch_id=batch_id,
                     profile_state=profile_state,
-                    resume_variant_sent=resume_variant_sent,
-                    resume_commit_hash=resume_commit_hash,
+                    resume_variant_sent=sent_variant,
+                    resume_commit_hash=sent_commit,
                 )
                 app_record = dict(record)
                 app_record.update(
                     {
-                        "resume_variant_sent": resume_variant_sent,
-                        "resume_commit_hash": resume_commit_hash,
+                        "resume_variant_sent": sent_variant,
+                        "resume_commit_hash": sent_commit,
                         "profile_state_at_application": profile_state,
                         "application_batch_id": batch_id,
                         "date_applied": None,
@@ -1611,7 +1643,7 @@ def _apply_records(
 
     except Exception as exc:
         logger.error(f"Batch apply failed: {exc}")
-        failed += len(jobs)
+        failed = len(jobs) - applied - stale
     finally:
         applier.cleanup()
 

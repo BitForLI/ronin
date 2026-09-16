@@ -84,8 +84,10 @@ class CoverLetterGenerator:
 
             if self.profile is not None and generate_cover_letter_prompt is not None:
                 # --- Profile-based path ---
-                highlights = self.profile.get_highlights_text()
-                if highlights:
+                highlights = (
+                    self.profile.get_highlights_text() if resume_text is None else ""
+                )
+                if highlights and resume_text is None:
                     resume_text = highlights
                 else:
                     resume_text = (
@@ -121,7 +123,7 @@ class CoverLetterGenerator:
                 highlights_path = (
                     Path(__file__).parent.parent.parent / "assets" / "highlights.txt"
                 )
-                if highlights_path.exists():
+                if highlights_path.exists() and resume_text is None:
                     resume_text = highlights_path.read_text()
                 else:
                     resume_text = (

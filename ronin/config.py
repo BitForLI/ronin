@@ -95,6 +95,18 @@ def load_config() -> Dict:
         if not isinstance(config, dict):
             raise ValueError(f"Config must be a dictionary, got {type(config)}")
 
+        # Keep personal project facts and compiler paths out of the public fork.
+        local_precision = Path(__file__).parent.parent / "precision_apply.local.yaml"
+        if local_precision.is_file():
+            with local_precision.open(encoding="utf-8") as handle:
+                settings = yaml.safe_load(handle)
+            if not isinstance(settings, dict):
+                raise ValueError("precision_apply.local.yaml must be a dictionary")
+            config["precision_apply"] = {
+                **config.get("precision_apply", {}),
+                **settings,
+            }
+
         logger.debug(f"Loaded config from: {config_path}")
         return config
     except yaml.YAMLError as e:

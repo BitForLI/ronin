@@ -8,10 +8,103 @@ on body text and swallow the queue.
 """
 
 from __future__ import annotations
+from types import SimpleNamespace
+import pytest
 
 from ronin.analyzer.archetype_classifier import is_excluded_title
 from ronin.applier.applier import SeekApplier
 from ronin.profile import Profile, ResumeProfile, ResumeUseWhen
+
+
+@pytest.mark.parametrize("mode", ["success", "wrong-name", "old-id", "ambiguous-input"])
+def test_tailored_upload_selects_only_the_new_pdf(tmp_path, monkeypatch, mode) -> None:
+    import ronin.applier.applier as module
+
+    pdf = tmp_path / "job-specific-unique.pdf"
+    pdf.write_bytes(b"%PDF-test")
+
+    class Radio:
+        def __init__(self, value, input_id):
+            self.attrs = {"value": value, "id": input_id}
+            self.checked = False
+
+        def get_attribute(self, name):
+            return self.attrs.get(name)
+
+        def is_selected(self):
+            return self.checked
+
+    old = Radio("old", "old-input")
+    new = Radio("old" if mode == "old-id" else "new", "new-input")
+
+    class Label:
+        text = "incorrect.pdf" if mode == "wrong-name" else pdf.name
+
+        def click(self):
+            new.checked = True
+
+    class Upload:
+        def send_keys(self, path):
+            assert path == str(pdf.resolve())
+            driver.uploaded = True
+
+    class Driver:
+        uploaded = False
+
+        def find_elements(self, by, selector):
+            if selector == module.SeekApplier.RESUME_RADIO_SELECTOR:
+                return [old, new] if self.uploaded else [old]
+            if selector.startswith("input[type='file']"):
+                return [Upload(), Upload()] if mode == "ambiguous-input" else [Upload()]
+            if selector == "label[for='new-input']":
+                return [Label()]
+            return []
+
+    driver = Driver()
+
+    class Wait:
+        def __init__(self, driver, timeout):
+            self.driver = driver
+
+        def until(self, condition):
+            value = condition(self.driver)
+            if not value:
+                raise TimeoutError("No matching new upload")
+            return value
+
+    monkeypatch.setattr(module, "WebDriverWait", Wait)
+    applier = module.SeekApplier.__new__(module.SeekApplier)
+    applier.chrome_driver = SimpleNamespace(driver=driver)
+    if mode == "success":
+        applier._upload_tailored_resume(str(pdf))
+        assert new.checked
+        assert not old.checked
+        assert applier.current_resume_profile == "job-specific"
+    else:
+        with pytest.raises((TimeoutError, ValueError)):
+            applier._upload_tailored_resume(str(pdf))
+        assert not new.checked
+
+
+def test_precision_missing_pdf_does_not_open_browser() -> None:
+    applier = SeekApplier.__new__(SeekApplier)
+    applier.config = {"precision_apply": {"enabled": True}}
+    applier.question_handler = SimpleNamespace(
+        ai_handler=SimpleNamespace(resume_text_override=None)
+    )
+    assert (
+        applier.apply_to_job("1", "JD", 80, "Python", "Company", "Graduate")
+        == "PRECISION_RESUME_REQUIRED"
+    )
+
+
+def test_wrong_resume_on_review_prevents_submit() -> None:
+    applier = SeekApplier.__new__(SeekApplier)
+    applier.current_resume_pdf = "correct.pdf"
+    applier.chrome_driver = SimpleNamespace(
+        driver=SimpleNamespace(find_element=lambda *a: SimpleNamespace(text="old.pdf"))
+    )
+    assert not applier._submit_application()
 
 
 def _profile() -> Profile:

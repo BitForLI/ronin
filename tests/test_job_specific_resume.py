@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+from types import SimpleNamespace
 
 from ronin.db import SQLiteManager
 from ronin.job_specific_resume import (
@@ -20,6 +21,8 @@ from ronin.job_specific_resume import (
     tailor_projects_with_ai,
     validate_tailored_projects,
     write_tailoring_artifacts,
+    compile_resume_pdf,
+    prepare_precision_resume,
 )
 
 
@@ -360,3 +363,213 @@ A small FastAPI service with repeatable request validation.
     ]
     assert action_facts
     assert action_facts[0]["text"].endswith("for incoming records.")
+
+
+def test_last_latex_section_preserves_document_end() -> None:
+    source = r"\begin{document}\section{Technical Projects}old\end{document}"
+    assert replace_projects_section(source, "NEW", ".tex").endswith(r"\end{document}")
+
+
+def test_precision_disabled_spends_no_ai_allowance() -> None:
+    assert prepare_precision_resume({}, {"precision_apply": {"enabled": False}}) == {}
+
+
+def test_precision_missing_template_fails_before_ai() -> None:
+    with pytest.raises(JobSpecificResumeError, match="requires catalog"):
+        prepare_precision_resume({}, {"precision_apply": {"enabled": True}})
+
+
+@pytest.mark.parametrize(
+    "pages,text,error", [(2, "Resume", "exceeds"), (1, "", "no extractable")]
+)
+def test_pdf_validation_rejects_bad_output(
+    tmp_path, monkeypatch, pages, text, error
+) -> None:
+    source = tmp_path / "cv.tex"
+    source.write_text("LATEX")
+
+    def run(argv, **kwargs):
+        assert kwargs["check"] is False
+        (tmp_path / "build" / "cv.pdf").write_bytes(b"%PDF-test")
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+    monkeypatch.setattr("ronin.job_specific_resume.subprocess.run", run)
+    monkeypatch.setattr(
+        "pypdf.PdfReader",
+        lambda path: SimpleNamespace(
+            pages=[SimpleNamespace(extract_text=lambda: text)] * pages
+        ),
+    )
+    with pytest.raises(JobSpecificResumeError, match=error):
+        compile_resume_pdf(source, command=["compiler", "{tex}", "{output_dir}"])
+
+
+def test_compile_failure_does_not_accept_a_pdf(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "cv.tex"
+    source.write_text("LATEX")
+    monkeypatch.setattr(
+        "ronin.job_specific_resume.subprocess.run",
+        lambda *a, **kw: SimpleNamespace(
+            returncode=1, stderr="invalid latex", stdout=""
+        ),
+    )
+    with pytest.raises(JobSpecificResumeError, match="invalid latex"):
+        compile_resume_pdf(source, command=["compiler"])
+
+
+def test_prepare_saves_pdf_and_selected_project_snapshot(tmp_path, monkeypatch) -> None:
+    import yaml
+    import ronin.job_specific_resume as module
+
+    catalog = tmp_path / "catalog.yaml"
+    projects = _projects()
+    monkeypatch.setattr(module, "load_project_catalog", lambda path: projects)
+    catalog.write_text(yaml.safe_dump({"schema_version": 1, "projects": []}))
+    base = tmp_path / "base.tex"
+    base.write_text(
+        r"DUPOON PTY LTD\section{Technical Projects}old\section{Skills}skills\end{document}"
+    )
+
+    class Writer:
+        def chat_completion(self, **kwargs):
+            return _valid_payload()
+
+    def compile(source, **kwargs):
+        assert "DUPOON PTY LTD" in source.read_text()
+        assert source.read_text().endswith(r"\end{document}")
+        pdf = source.with_suffix(".pdf")
+        pdf.write_bytes(b"%PDF-test")
+        return {
+            "resume_pdf_path": str(pdf),
+            "resume_text": "DUPOON PTY LTD Commerce Platform",
+            "pdf_pages": 1,
+        }
+
+    monkeypatch.setattr(module, "compile_resume_pdf", compile)
+    config = {
+        "precision_apply": {
+            "enabled": True,
+            "catalog": str(catalog),
+            "base_resume": str(base),
+            "output_dir": str(tmp_path / "out"),
+            "project_limit": 1,
+            "bullets_per_project": 2,
+        }
+    }
+    job = {
+        "job_id": "123",
+        "title": "Full Stack Intern",
+        "company_name": "Example",
+        "description": "React TypeScript C# REST APIs",
+    }
+    result = prepare_precision_resume(job, config, ai_service=Writer())
+    assert result["tailored_resume_path"].endswith(".pdf")
+    assert json.loads(result["selected_projects"]) == ["commerce"]
+    manifest = json.loads(
+        Path(result["tailoring_manifest_path"]).read_text(encoding="utf-8")
+    )
+    assert manifest["pdf_path"] == result["tailored_resume_path"]
+    assert manifest["resume_path"].endswith(".tex")
+
+
+def test_metadata_failure_stops_before_application(monkeypatch) -> None:
+    from ronin.cli.tailor import prepare_application_resume
+
+    prepared = {
+        "selected_projects": '["commerce"]',
+        "tailored_resume_path": "new.pdf",
+        "tailoring_manifest_path": "new.json",
+        "tailoring_generated_at": "now",
+        "resume_pdf_path": "new.pdf",
+        "resume_text": "CV",
+    }
+    monkeypatch.setattr(
+        "ronin.cli.tailor.prepare_precision_resume", lambda *a, **kw: prepared
+    )
+    record = {"id": 1}
+    with pytest.raises(JobSpecificResumeError, match="could not be saved"):
+        prepare_application_resume(
+            record, SimpleNamespace(update_record=lambda *a: False), {}
+        )
+    assert "tailored_resume_path" not in record
+
+
+def test_batch_skips_failed_tailoring_and_records_actual_pdf(monkeypatch) -> None:
+    from ronin.cli import apply_ops, tailor
+
+    calls, submissions = [], []
+
+    class Applier:
+        ai_service = None
+
+        def login(self):
+            return True
+
+        def cleanup(self):
+            pass
+
+        def apply_to_job(self, **kwargs):
+            calls.append(kwargs)
+            return "APPLIED"
+
+    def prepare(record, db, config, **kwargs):
+        if record["id"] == 1:
+            raise JobSpecificResumeError("Compilation failed")
+        record.update(selected_projects='["commerce"]', tailored_resume_path="new.pdf")
+        return {"resume_pdf_path": "new.pdf", "resume_text": "Commerce Platform"}
+
+    monkeypatch.setattr(apply_ops, "SeekApplier", Applier)
+    monkeypatch.setattr(apply_ops, "load_config", lambda: {})
+    monkeypatch.setattr(tailor, "prepare_application_resume", prepare)
+    db = SimpleNamespace(
+        update_record=lambda *a: True,
+        mark_job_applied=lambda **kw: True,
+        record_application_submission=lambda payload: submissions.append(payload),
+    )
+    result = apply_ops._apply_records(
+        [{"id": 1, "title": "Bad"}, {"id": 2, "title": "Good"}],
+        db,
+        "builder",
+        None,
+        "default",
+        "old-hash",
+    )
+    assert result == {"applied": 1, "failed": 1, "stale": 0}
+    assert len(calls) == 1 and calls[0]["resume_pdf_path"] == "new.pdf"
+    assert submissions[0]["tailored_resume_path"] == "new.pdf"
+    assert submissions[0]["resume_variant_sent"] == "job-specific"
+    assert submissions[0]["resume_commit_hash"] is None
+
+
+def test_cover_letters_use_uploaded_resume_and_each_company(monkeypatch) -> None:
+    from ronin.applier import cover_letter as module
+    from ronin.profile import Profile
+
+    calls = []
+    generator = module.CoverLetterGenerator.__new__(module.CoverLetterGenerator)
+    generator.profile = Profile()
+    generator.model = "test"
+    generator.ai_service = SimpleNamespace(
+        chat_completion=lambda **kwargs: calls.append(kwargs)
+        or {"response": kwargs["user_message"]}
+    )
+    monkeypatch.setattr(
+        module, "generate_cover_letter_prompt", lambda **kwargs: kwargs["resume_text"]
+    )
+    monkeypatch.setattr(
+        Profile,
+        "get_highlights_text",
+        lambda self: pytest.fail(
+            "Must not replace explicit tailored resume with old highlights"
+        ),
+    )
+    first = generator.generate_cover_letter(
+        "React JD", "Graduate", "Alpha", "job-specific", resume_text="Uploaded Alpha CV"
+    )
+    second = generator.generate_cover_letter(
+        "Python JD", "Intern", "Beta", "job-specific", resume_text="Uploaded Beta CV"
+    )
+    assert calls[0]["system_prompt"] == "Uploaded Alpha CV"
+    assert calls[1]["system_prompt"] == "Uploaded Beta CV"
+    assert "Alpha" in first["response"] and "Beta" in second["response"]
+    assert first != second

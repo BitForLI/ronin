@@ -26,6 +26,7 @@ class AIResponseHandler:
         """Initialize the AI response handler."""
         self.ai_service = ai_service or AIService()
         self._resume_cache: Dict[str, str] = {}
+        self.resume_text_override: Optional[str] = None
 
         if config is None:
             from ronin.config import load_config
@@ -56,7 +57,7 @@ class AIResponseHandler:
 
             prompt_start = time.time()
 
-            resume_text = self._get_resume_text(key_tools)
+            resume_text = self.resume_text_override or self._get_resume_text(key_tools)
             system_prompt = f"{self._system_prompt}\n\nMy resume: {resume_text}"
             user_message = self._build_user_message(element_info, job_description)
             logger.debug(f"Built prompts in {time.time() - prompt_start:.3f}s")
@@ -99,7 +100,7 @@ class AIResponseHandler:
         try:
             key_tools = self._normalize_key_tools(key_tools)
 
-            resume_text = self._get_resume_text(key_tools)
+            resume_text = self.resume_text_override or self._get_resume_text(key_tools)
             system_prompt = f"{self._system_prompt}\n\nMy resume: {resume_text}"
             user_message = self._build_user_message(
                 element_info, job_description, has_validation_error=has_validation_error

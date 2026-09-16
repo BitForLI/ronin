@@ -1,6 +1,7 @@
 """Implements the logic to apply to jobs on Seek.com.au"""
 
 import time
+from pathlib import Path
 from typing import Optional
 
 from loguru import logger
@@ -24,6 +25,12 @@ except ImportError:
 
 class SeekApplier(BaseApplier):
     """Handles job applications on Seek.com.au."""
+
+    RESUME_RADIO_SELECTOR = (
+        "input[name='document-select'][type='radio'], "
+        "input[name='resume'][type='radio'], "
+        "input[data-testid*='resume'][type='radio']"
+    )
 
     COMMON_PATTERNS = {
         "START_POSITION": ["Start", "start date", "earliest"],
@@ -74,6 +81,8 @@ class SeekApplier(BaseApplier):
         self.current_key_tools = None
         self.current_job_description = None
         self.current_resume_profile = None
+        self.current_resume_text = None
+        self.current_resume_pdf = None
 
     @property
     def board_name(self) -> str:
@@ -116,12 +125,54 @@ class SeekApplier(BaseApplier):
                         (By.CSS_SELECTOR, "[data-automation='job-detail-apply']")
                     )
                 )
+                original_url = self.chrome_driver.driver.current_url
+                original_handles = set(self.chrome_driver.driver.window_handles)
                 apply_button.click()
-            except TimeoutException:
-                logger.info(
-                    f"No apply button found for job {job_id}, assuming already applied"
+
+                # SEEK changes the canonical host from www.seek.com.au to
+                # au.seek.com and then performs a client-side transition into
+                # the application form.  Reading the form immediately races
+                # that transition and produces stale elements/timeouts.
+                WebDriverWait(self.chrome_driver.driver, 20).until(
+                    lambda driver: (
+                        len(set(driver.window_handles) - original_handles) > 0
+                        or driver.current_url != original_url
+                        or bool(
+                            driver.find_elements(
+                                By.CSS_SELECTOR, self.RESUME_RADIO_SELECTOR
+                            )
+                        )
+                    )
                 )
-                return "APPLIED"
+
+                new_handles = (
+                    set(self.chrome_driver.driver.window_handles) - original_handles
+                )
+                if new_handles:
+                    self.chrome_driver.driver.switch_to.window(new_handles.pop())
+
+                WebDriverWait(self.chrome_driver.driver, 20).until(
+                    lambda driver: driver.execute_script("return document.readyState")
+                    in {"interactive", "complete"}
+                )
+
+                auth_url = self.chrome_driver.driver.current_url.lower()
+                if (
+                    "accounts.google.com" in auth_url
+                    or "login.seek.com" in auth_url
+                    or "/sign-in" in auth_url
+                ):
+                    self.chrome_driver.is_logged_in = False
+                    raise RuntimeError(
+                        "SEEK application login has expired. Sign in through the "
+                        "Ronin browser window, then retry."
+                    )
+            except TimeoutException:
+                # A missing apply button is not proof that an application was
+                # submitted. Keep the job retryable instead of recording a
+                # false positive.
+                logger.warning(f"Could not open the application form for job {job_id}")
+                return "APP_ERROR"
 
         except Exception as e:
             raise Exception(f"Failed to navigate to job {job_id}: {str(e)}")
@@ -179,21 +230,79 @@ class SeekApplier(BaseApplier):
                 return checked[0]
         return None
 
+    def _upload_tailored_resume(self, pdf_path: str) -> None:
+        """Upload and select only the new job-specific document, never a default."""
+        pdf = Path(pdf_path).expanduser().resolve()
+        if not pdf.is_file() or pdf.suffix.lower() != ".pdf":
+            raise ValueError(f"Tailored PDF not found: {pdf}")
+        with pdf.open("rb") as stream:
+            if stream.read(5) != b"%PDF-":
+                raise ValueError("Tailored upload is not a PDF")
+        driver = self.chrome_driver.driver
+        previous_ids = {
+            element.get_attribute("value")
+            for element in driver.find_elements(
+                By.CSS_SELECTOR, self.RESUME_RADIO_SELECTOR
+            )
+        }
+        selector = "input[type='file'][id^='resume-file'], input[type='file'][name*='resume'], input[type='file'][data-testid*='resume']"
+        upload = WebDriverWait(driver, 15).until(
+            lambda d: d.find_elements(By.CSS_SELECTOR, selector)
+        )
+        if len(upload) != 1:
+            raise ValueError("Cannot identify a unique SEEK resume upload input")
+        upload[0].send_keys(str(pdf))
+
+        def uploaded_option(d):
+            matches = []
+            for element in d.find_elements(By.CSS_SELECTOR, self.RESUME_RADIO_SELECTOR):
+                value = element.get_attribute("value")
+                if (
+                    not value
+                    or value in previous_ids
+                    or value.lower() == "dont-include"
+                ):
+                    continue
+                input_id = element.get_attribute("id")
+                if not input_id:
+                    continue
+                labels = d.find_elements(By.CSS_SELECTOR, f"label[for='{input_id}']")
+                if len(labels) == 1 and pdf.name in labels[0].text:
+                    matches.append((element, labels[0]))
+            return matches[0] if len(matches) == 1 else False
+
+        element, label = WebDriverWait(driver, 45).until(uploaded_option)
+        if not element.is_selected():
+            label.click()
+
+        def selected_uploaded(d):
+            target = uploaded_option(d)
+            return target and target[0].is_selected()
+
+        WebDriverWait(driver, 10).until(selected_uploaded)
+        self.current_resume_profile = "job-specific"
+        self.current_resume_pdf = str(pdf)
+        logger.info(f"Uploaded and selected job-specific resume: {pdf.name}")
+
     def _handle_resume(
         self,
         job_id: str,
         resume_profile: str = "default",
         title: str = "",
         work_type: str = "",
+        resume_pdf_path: str = "",
     ):
         """Handle resume selection for Seek applications based on resume profile name."""
         try:
-            # Seek replaced the resume <select> dropdown with a radio group
-            # (div[data-testid='resumeSelectInput'], inputs named
-            # 'document-select'). Wait for the group, not the retired dropdown.
-            container = WebDriverWait(self.chrome_driver.driver, 10).until(
+            if resume_pdf_path:
+                self._upload_tailored_resume(resume_pdf_path)
+                return
+            # Wait for the actual resume inputs. The surrounding data-testid
+            # changes more often than the inputs and caused valid forms to be
+            # missed after SEEK's client-side transitions.
+            WebDriverWait(self.chrome_driver.driver, 20).until(
                 EC.presence_of_element_located(
-                    (By.CSS_SELECTOR, "[data-testid='resumeSelectInput']")
+                    (By.CSS_SELECTOR, self.RESUME_RADIO_SELECTOR)
                 )
             )
 
@@ -228,8 +337,8 @@ class SeekApplier(BaseApplier):
                     )
 
             radios = []
-            for inp in container.find_elements(
-                By.CSS_SELECTOR, "input[name='document-select'][type='radio']"
+            for inp in self.chrome_driver.driver.find_elements(
+                By.CSS_SELECTOR, self.RESUME_RADIO_SELECTOR
             ):
                 value = (inp.get_attribute("value") or "").strip()
                 if not value or value.lower() == "dont-include":
@@ -238,7 +347,7 @@ class SeekApplier(BaseApplier):
                 label_text = ""
                 if input_id:
                     try:
-                        label_el = container.find_element(
+                        label_el = self.chrome_driver.driver.find_element(
                             By.CSS_SELECTOR, f"label[for='{input_id}']"
                         )
                         label_text = " ".join((label_el.text or "").split())
@@ -331,7 +440,7 @@ class SeekApplier(BaseApplier):
             # Log company name to verify we're using the actual name not ID
             logger.info(f"Generating cover letter for company: {company_name}")
 
-            if score and score > 60:
+            if company_name and title and job_description:
                 # Find the "Write a cover letter" radio button using data-testid
                 try:
                     write_cover_letter_input = self.chrome_driver.driver.find_element(
@@ -375,6 +484,7 @@ class SeekApplier(BaseApplier):
                     company_name=company_name,
                     key_tools=self.current_resume_profile or "default",
                     work_type=work_type,
+                    resume_text=self.current_resume_text,
                 )
 
                 if not cover_letter or "response" not in cover_letter:
@@ -393,40 +503,10 @@ class SeekApplier(BaseApplier):
                 cover_letter_input.clear()
                 cover_letter_input.send_keys(cover_letter["response"])
             else:
-                # Find the "Don't include a cover letter" radio button
-                try:
-                    no_cover_input = self.chrome_driver.driver.find_element(
-                        By.CSS_SELECTOR, "input[data-testid='coverLetter-method-none']"
-                    )
-                    # Click the label associated with this input
-                    no_cover_label = self.chrome_driver.driver.find_element(
-                        By.CSS_SELECTOR,
-                        f"label[for='{no_cover_input.get_attribute('id')}']",
-                    )
-                    no_cover_label.click()
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to find 'Don't include a cover letter' option using data-testid: {e}"
-                    )
-                    # Fallback: try to find by text content
-                    try:
-                        no_cover_select = self.chrome_driver.driver.find_element(
-                            By.XPATH,
-                            '//label[contains(text(), "Don\'t include a cover letter")]',
-                        )
-                        no_cover_select.click()
-                    except Exception as e2:
-                        logger.warning(f"Fallback also failed: {e2}")
-                        # Last resort: try to find by value
-                        none_input = self.chrome_driver.driver.find_element(
-                            By.CSS_SELECTOR,
-                            "input[name='coverLetter-method'][value='none']",
-                        )
-                        none_label = self.chrome_driver.driver.find_element(
-                            By.CSS_SELECTOR,
-                            f"label[for='{none_input.get_attribute('id')}']",
-                        )
-                        none_label.click()
+                logger.error(
+                    "Company, title and job description are required for a tailored cover letter"
+                )
+                return False
 
             # Wait a moment for the form to update
             time.sleep(0.5)
@@ -734,6 +814,15 @@ class SeekApplier(BaseApplier):
     def _submit_application(self) -> bool:
         """Submit the application after all questions are answered."""
         try:
+            if (
+                self.current_resume_pdf
+                and Path(self.current_resume_pdf).name
+                not in self.chrome_driver.driver.find_element(By.TAG_NAME, "body").text
+            ):
+                logger.error(
+                    "Review page does not show the tailored resume filename; submission stopped"
+                )
+                return False
             # Store current URL to detect page transition
             pre_submit_url = self.chrome_driver.current_url
 
@@ -849,9 +938,20 @@ class SeekApplier(BaseApplier):
         title,
         resume_profile="default",
         work_type=None,
+        resume_pdf_path="",
+        resume_text=None,
     ):
         """Apply to a specific job on Seek"""
         try:
+            if self.config.get("precision_apply", {}).get("enabled", False) and (
+                not resume_pdf_path or not resume_text
+            ):
+                logger.error(
+                    "Precision apply requires a prepared PDF and its text; application stopped"
+                )
+                return "PRECISION_RESUME_REQUIRED"
+            self.current_resume_text = resume_text
+            self.question_handler.ai_handler.resume_text_override = resume_text
             # Initialize chrome driver if not already initialized
             self.chrome_driver.initialize()
 
@@ -875,12 +975,15 @@ class SeekApplier(BaseApplier):
                 return "APPLIED"
             if navigation_result == "STALE":
                 return "STALE"
+            if navigation_result == "APP_ERROR":
+                return "APP_ERROR"
 
             self._handle_resume(
                 job_id=job_id,
                 resume_profile=resume_profile,
                 title=title,
                 work_type=work_type or "",
+                resume_pdf_path=resume_pdf_path,
             )
             cover_letter_success = self._handle_cover_letter(
                 score=score,
@@ -906,6 +1009,8 @@ class SeekApplier(BaseApplier):
                 # Handle screening questions page
                 if "role-requirements" in current_url:
                     if not self._handle_screening_questions():
+                        if self.config.get("precision_apply", {}).get("enabled", False):
+                            return "SCREENING_FAILED"
                         logger.warning(
                             "Issue with screening questions, but continuing..."
                         )
@@ -952,6 +1057,9 @@ class SeekApplier(BaseApplier):
             self.current_key_tools = None
             self.current_job_description = None
             self.current_resume_profile = None
+            self.current_resume_text = None
+            self.current_resume_pdf = None
+            self.question_handler.ai_handler.resume_text_override = None
 
     def cleanup(self):
         """Clean up resources - call this when completely done with all applications"""

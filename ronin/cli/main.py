@@ -141,6 +141,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     tailor_build.add_argument("--model", default="")
     tailor_build.add_argument(
+        "--pdf",
+        action="store_true",
+        help="Compile and validate a one-page PDF; does not apply",
+    )
+    tailor_build.add_argument(
         "--preview",
         action="store_true",
         help="Show selected projects without calling AI or writing files",
@@ -1005,6 +1010,7 @@ def main() -> None:
                 provider=args.provider,
                 model=args.model,
                 preview=args.preview,
+                pdf=args.pdf,
             )
         if rc != 0:
             sys.exit(rc)

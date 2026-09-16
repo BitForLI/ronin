@@ -114,6 +114,49 @@ ronin applications export --format markdown
 The ledger includes the company, position, application date, match score,
 selected projects, exact resume file, current outcome stage and job URL.
 
+### Automatic precision applications (SEEK-native forms)
+
+Create `precision_apply.local.yaml` in the project root. This file is ignored by
+Git; your existing profile and saved answers stay unchanged.
+
+```yaml
+enabled: true
+catalog: C:/path/to/reviewed-projects.yaml
+base_resume: C:/path/to/base-resume.tex
+project_limit: 3
+bullets_per_project: 3
+max_words_per_bullet: 36
+max_pages: 1
+# Optional when XeLaTeX or Tectonic is not on PATH:
+compiler_command:
+  - C:/texlive/bin/windows/xelatex.exe
+  - -interaction=nonstopmode
+  - -halt-on-error
+  - "-output-directory={output_dir}"
+  - "{tex}"
+```
+
+Both `ronin apply` and `ronin apply batch <archetype>` now prepare a fresh
+job-specific PDF before applying: select three reviewed matching projects,
+write source-backed STAR bullets, replace only the template's projects section,
+compile, validate the page limit and selected project names, and save its
+evidence manifest. The template must be self-contained and use the `cvblocks`,
+`cvbody` and `cvbullets` definitions used by the project renderer.
+
+Ronin uploads the new PDF, verifies its new document option is selected, and
+checks its unique filename on the review page before submitting. A generation,
+compilation, metadata or upload failure stops that role rather than sending the
+generic CV. Page overflow stops the role; it never silently shrinks your font.
+The company-specific cover letter and screening answers use the text extracted
+from this same PDF. Cover letters are regenerated for every role, irrespective
+of its match score; a saved SEEK cover letter is never reused.
+
+Add `--pdf` to `ronin tailor build` to compile a preview without applying. Supply
+explicit `--catalog` and `--base-resume` paths for that standalone command.
+Automatic precision upload currently covers SEEK-native forms, not external
+employer application systems. Repository indexing still requires fact review;
+it does not automatically trust arbitrary README claims or change your visa.
+
 ---
 
 ## Prerequisites

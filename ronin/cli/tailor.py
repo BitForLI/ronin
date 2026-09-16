@@ -16,6 +16,7 @@ from ronin.job_specific_resume import (
     JobSpecificResumeError,
     catalog_to_prompt_preview,
     load_project_catalog,
+    prepare_precision_resume,
     select_projects,
     tailor_projects_with_ai,
     write_project_catalog_draft,
@@ -24,6 +25,34 @@ from ronin.job_specific_resume import (
 from ronin.profile import load_profile
 
 console = Console()
+
+
+def prepare_application_resume(
+    record: Dict[str, Any], db: Any, config: Dict[str, Any], *, ai_service: Any = None
+) -> Dict[str, str]:
+    """Save the exact tailored PDF metadata before allowing an application."""
+    prepared = prepare_precision_resume(record, config, ai_service=ai_service)
+    if not prepared:
+        return {}
+    metadata = {
+        key: prepared[key]
+        for key in (
+            "selected_projects",
+            "tailored_resume_path",
+            "tailoring_manifest_path",
+            "tailoring_generated_at",
+        )
+    }
+    if not db.update_record(int(record["id"]), metadata):
+        raise JobSpecificResumeError(
+            "Tailored PDF generated but metadata could not be saved; application stopped"
+        )
+    record.update(metadata)
+    console.print(f"[cyan]Job-specific PDF:[/cyan] {prepared['resume_pdf_path']}")
+    return {
+        "resume_pdf_path": prepared["resume_pdf_path"],
+        "resume_text": prepared["resume_text"],
+    }
 
 
 def index_projects(*, root: str, output: str = "") -> int:
@@ -124,6 +153,7 @@ def build_resume(
     provider: str = "",
     model: str = "",
     preview: bool = False,
+    pdf: bool = False,
 ) -> int:
     """Select projects, write validated STAR bullets and create resume artifacts."""
     load_env()
@@ -185,6 +215,30 @@ def build_resume(
             output_dir=destination,
             base_resume=(Path(base_resume) if base_resume else None),
         )
+        if pdf:
+            from ronin.config import load_config
+            from ronin.job_specific_resume import compile_resume_pdf
+
+            if not base_resume or Path(base_resume).suffix.lower() != ".tex":
+                raise JobSpecificResumeError(
+                    "--pdf requires --base-resume with a LaTeX template"
+                )
+            settings = load_config().get("precision_apply", {})
+            compiled = compile_resume_pdf(
+                Path(artifacts["resume_path"]),
+                command=settings.get("compiler_command", ()),
+                max_pages=int(settings.get("max_pages", 1)),
+            )
+            manifest = json.loads(
+                Path(artifacts["manifest_path"]).read_text(encoding="utf-8")
+            )
+            manifest.update(
+                pdf_path=compiled["resume_pdf_path"], pdf_pages=compiled["pdf_pages"]
+            )
+            Path(artifacts["manifest_path"]).write_text(
+                json.dumps(manifest, indent=2), encoding="utf-8"
+            )
+            artifacts["resume_path"] = compiled["resume_pdf_path"]
 
         selected_ids = [project.project_id for project in result.projects]
         generated_at = datetime.now(timezone.utc).isoformat()

@@ -189,6 +189,11 @@ class ResumeVariantManager:
 
     def refresh_variants(self, classifier: ArchetypeClassifier) -> Dict[str, Dict]:
         """Refresh and score all archetype variants currently mapped in resume/ repo."""
+        if self.config.get("precision_apply", {}).get("enabled", False) or not bool(
+            (self.config.get("resume_variants", {}) or {}).get("enabled", True)
+        ):
+            return {}
+
         results: Dict[str, Dict] = {}
         for archetype in ARCHETYPES:
             try:

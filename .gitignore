@@ -59,6 +59,7 @@ data/
 # These contain personal data and API keys
 profile.yaml
 !profile.example.yaml
+precision_apply.local.yaml
 
 # External tools
 mcp_agent_mail/

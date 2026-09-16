@@ -14,7 +14,10 @@ again for each job while the underlying claims remain traceable to source files.
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -819,6 +822,8 @@ Hard rules:
   action/implementation fact and one situation/task/result/context fact.
 - Prefer job-relevant facts, but do not repeat the job description as a claim.
 - Technology Stack must be a list, not a descriptive phrase.
+- Choose at most six job-relevant technologies for each project header; do not
+  list every dependency. Preserve the candidate's contribution, not just tasks.
 - Use direct, natural Australian English. No first person, em dashes, hype, or
   generic claims such as 'passionate', 'cutting-edge', or 'leveraged my skills'.
 
@@ -1135,7 +1140,9 @@ def replace_projects_section(base_resume: str, replacement: str, suffix: str) ->
         if end >= 0:
             end += 1
     if end < 0:
-        end = len(base_resume)
+        end = base_resume.find(r"\end{document}", start) if suffix == ".tex" else -1
+        if end < 0:
+            end = len(base_resume)
     return base_resume[:start] + replacement.rstrip() + "\n\n" + base_resume[end:]
 
 
@@ -1149,11 +1156,14 @@ def write_tailoring_artifacts(
     result: TailoringResult,
     output_dir: Path,
     base_resume: Optional[Path] = None,
+    filename_suffix: str = "",
 ) -> Dict[str, str]:
     """Write a resume copy plus an evidence manifest for one job."""
     destination = Path(output_dir).expanduser().resolve()
     destination.mkdir(parents=True, exist_ok=True)
     stem = _slug(f"{result.company}-{result.job_title}-{result.job_id}")
+    if filename_suffix:
+        stem += "-" + _slug(filename_suffix)
 
     if base_resume:
         template_path = Path(base_resume).expanduser().resolve()
@@ -1223,3 +1233,173 @@ def catalog_to_prompt_preview(matches: Iterable[ProjectMatch]) -> List[Dict[str,
         }
         for match in matches
     ]
+
+
+def compile_resume_pdf(
+    source: Path, *, command: Sequence[str] = (), max_pages: int = 1
+) -> Dict[str, Any]:
+    """Compile a fresh LaTeX artifact and verify its PDF before upload."""
+    from pypdf import PdfReader
+
+    source = source.resolve()
+    output = source.parent / "build"
+    output.mkdir(parents=True, exist_ok=True)
+    pdf = output / f"{source.stem}.pdf"
+    if pdf.exists():
+        raise JobSpecificResumeError("Refusing to reuse an existing compiled PDF")
+    if command:
+        if isinstance(command, str):
+            raise JobSpecificResumeError("compiler_command must be an argument list")
+        # Native TeX engines on Windows can misparse non-ASCII absolute paths.
+        # Compile from the artifact folder using English relative names.
+        argv = [
+            str(part).format(tex=source.name, output_dir=output.name)
+            for part in command
+        ]
+    elif shutil.which("tectonic"):
+        argv = ["tectonic", source.name, "--outdir", output.name, "--keep-logs"]
+    elif shutil.which("xelatex"):
+        argv = [
+            "xelatex",
+            "-interaction=nonstopmode",
+            "-halt-on-error",
+            f"-output-directory={output.name}",
+            source.name,
+        ]
+    else:
+        raise JobSpecificResumeError(
+            "No LaTeX compiler found; set precision_apply.compiler_command"
+        )
+    try:
+        completed = subprocess.run(
+            argv,
+            cwd=source.parent,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env={**os.environ, "PYTHONUTF8": "1"},
+            timeout=180,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise JobSpecificResumeError(f"LaTeX compilation failed: {exc}") from exc
+    if completed.returncode != 0 or not pdf.is_file():
+        raise JobSpecificResumeError(
+            f"LaTeX compilation failed: {(completed.stderr or completed.stdout)[-1200:]}"
+        )
+    try:
+        reader = PdfReader(pdf)
+        pages = len(reader.pages)
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    except Exception as exc:
+        raise JobSpecificResumeError(f"Compiled PDF is unreadable: {exc}") from exc
+    if not pages or not text.strip():
+        raise JobSpecificResumeError("Compiled PDF has no extractable resume text")
+    if pages > max_pages:
+        raise JobSpecificResumeError(f"Resume exceeds {max_pages} page(s): {pages}")
+    return {"resume_pdf_path": str(pdf), "resume_text": text, "pdf_pages": pages}
+
+
+def prepare_precision_resume(
+    job: Dict[str, Any], config: Dict[str, Any], *, ai_service: Any = None
+) -> Dict[str, Any]:
+    """Prepare one evidence-backed PDF; failure never falls back to a generic CV."""
+    settings = config.get("precision_apply", {})
+    if not settings.get("enabled", False):
+        return {}
+    from ronin.config import get_ronin_home
+
+    root = Path(__file__).resolve().parent.parent
+
+    def resolve(value: str) -> Path:
+        path = Path(value).expanduser()
+        return (path if path.is_absolute() else root / path).resolve()
+
+    if not settings.get("catalog") or not settings.get("base_resume"):
+        raise JobSpecificResumeError("Precision apply requires catalog and base_resume")
+    base = resolve(settings["base_resume"])
+    if base.suffix.lower() != ".tex" or not base.is_file():
+        raise JobSpecificResumeError(
+            "Precision apply requires an existing LaTeX base resume"
+        )
+    # Validate the section before spending any AI allowance.
+    replace_projects_section(base.read_text(encoding="utf-8"), "", ".tex")
+    title = str(job.get("title") or "")
+    company = str(job.get("company_name") or "")
+    description = str(job.get("description") or "")
+    if not title.strip() or not company.strip() or not description.strip():
+        raise JobSpecificResumeError(
+            "Precision apply requires title, company and full job description"
+        )
+    limit = int(settings.get("project_limit", 3))
+    matches = select_projects(
+        load_project_catalog(resolve(settings["catalog"])),
+        job_title=title,
+        job_description=description,
+        limit=limit,
+        min_score=float(settings.get("min_project_score", 5)),
+    )
+    if len(matches) != limit:
+        raise JobSpecificResumeError(
+            f"Need {limit} reviewed matching projects; found {len(matches)}"
+        )
+    if ai_service is None:
+        from ronin.ai import CodexService
+
+        ai_service = CodexService(default_model="gpt-5.6-terra", reasoning_effort="low")
+    result = tailor_projects_with_ai(
+        ai_service=ai_service,
+        model=settings.get("model", "gpt-5.6-terra"),
+        job_id=str(job.get("job_id") or "manual"),
+        job_title=title,
+        company=company,
+        job_description=description,
+        matches=matches,
+        bullets_per_project=int(settings.get("bullets_per_project", 3)),
+        max_words_per_bullet=int(settings.get("max_words_per_bullet", 36)),
+    )
+    run = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    destination = (
+        resolve(settings["output_dir"])
+        if settings.get("output_dir")
+        else get_ronin_home() / "tailored_resumes"
+    )
+    artifacts = write_tailoring_artifacts(
+        result=result,
+        output_dir=destination / _slug(result.job_id) / run,
+        base_resume=base,
+        filename_suffix=run,
+    )
+    # Unique filenames distinguish this upload from all previous versions on SEEK.
+    unique_source = Path(artifacts["resume_path"])
+    compiled = compile_resume_pdf(
+        unique_source,
+        command=settings.get("compiler_command", ()),
+        max_pages=int(settings.get("max_pages", 1)),
+    )
+    normalized = re.sub(r"\s+", "", compiled["resume_text"]).lower()
+    for project in result.projects:
+        if re.sub(r"\s+", "", project.name).lower() not in normalized:
+            raise JobSpecificResumeError(
+                f"Compiled PDF is missing selected project: {project.name}"
+            )
+    manifest_path = Path(artifacts["manifest_path"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update(
+        resume_path=str(unique_source),
+        pdf_path=compiled["resume_pdf_path"],
+        pdf_pages=compiled["pdf_pages"],
+    )
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    return {
+        **compiled,
+        "selected_projects": json.dumps(
+            [project.project_id for project in result.projects]
+        ),
+        "tailored_resume_path": compiled["resume_pdf_path"],
+        "tailoring_manifest_path": str(manifest_path),
+        "tailoring_generated_at": manifest["created_at"],
+    }

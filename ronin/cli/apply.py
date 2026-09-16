@@ -127,6 +127,11 @@ def main():
                 )
 
                 try:
+                    from ronin.cli.tailor import prepare_application_resume
+
+                    prepared = prepare_application_resume(
+                        record, db_manager, config, ai_service=applier.ai_service
+                    )
                     result = applier.apply_to_job(
                         job_id=record.get("job_id", ""),
                         job_description=record.get("description", ""),
@@ -136,6 +141,7 @@ def main():
                         title=record.get("title", ""),
                         resume_profile=record.get("resume_profile", "default"),
                         work_type=record.get("work_type", ""),
+                        **prepared,
                     )
 
                     if result == "APPLIED":
@@ -146,21 +152,23 @@ def main():
                             or record.get("resume_archetype")
                             or "builder"
                         )
+                        sent_variant = "job-specific" if prepared else str(archetype)
+                        sent_commit = (
+                            None if prepared else variant_commits.get(str(archetype))
+                        )
                         db_manager.mark_job_applied(
                             record_id=int(record_id),
                             batch_id=None,
                             profile_state=str(archetype),
-                            resume_variant_sent=str(archetype),
-                            resume_commit_hash=variant_commits.get(str(archetype)),
+                            resume_variant_sent=sent_variant,
+                            resume_commit_hash=sent_commit,
                         )
 
                         submission_payload = dict(record)
                         submission_payload.update(
                             {
-                                "resume_variant_sent": str(archetype),
-                                "resume_commit_hash": variant_commits.get(
-                                    str(archetype)
-                                ),
+                                "resume_variant_sent": sent_variant,
+                                "resume_commit_hash": sent_commit,
                                 "profile_state_at_application": str(archetype),
                             }
                         )
