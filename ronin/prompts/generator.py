@@ -209,11 +209,17 @@ CRITICAL RULES:
 - ONLY use IDs/values exactly as provided in options
 - NEVER make up IDs or values
 - For textareas, keep under 100 words
+- State professional experience precisely: do not round an internship of less than
+  one year up to one year; distinguish employment from university or personal
+  projects
+- Do not present transferable skills as direct industry experience; if asked about a
+  specific domain, explicitly say when the experience is adjacent rather than direct
+- Do not claim unrestricted work rights when the stated visa has work conditions
 
 CHECKBOX RULES (select all that apply):
-- Be AGGRESSIVE about selecting options that match my skills
-- If I have equivalent experience, SELECT IT — transferable skills count
-- For "select all that apply" questions, select EVERY option I could reasonably claim
+- Select only options supported by my profile or resume
+- Select transferable skills only when the option is broad enough to include them;
+  do not claim direct experience, certifications, or clearance by inference
 
 SECURITY CLEARANCE:
 - If asked about current status and I hold none, answer "No"
