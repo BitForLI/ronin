@@ -263,6 +263,7 @@ class ProjectFact:
     domains: Tuple[str, ...] = ()
     evidence: Tuple[EvidenceFact, ...] = ()
     needs_review: bool = False
+    included_in_experience: bool = False
 
     @property
     def evidence_by_id(self) -> Dict[str, EvidenceFact]:
@@ -340,6 +341,7 @@ class ProjectFact:
             domains=_string_list(raw.get("domains")),
             evidence=tuple(facts),
             needs_review=bool(raw.get("needs_review", False)),
+            included_in_experience=bool(raw.get("included_in_experience", False)),
         )
 
 
@@ -748,12 +750,15 @@ def select_projects(
         raise JobSpecificResumeError("Job title or description is required")
 
     eligible = [
-        project for project in projects if allow_unreviewed or not project.needs_review
+        project
+        for project in projects
+        if not project.included_in_experience
+        and (allow_unreviewed or not project.needs_review)
     ]
     if not eligible:
         raise JobSpecificResumeError(
-            "No reviewed projects are available; review projects.yaml and set "
-            "needs_review to false for verified entries"
+            "No reviewed projects are available outside existing work experience; "
+            "review the catalog without duplicating internship work"
         )
     ranked = [score_project(project, job_text) for project in eligible]
     ranked.sort(key=lambda match: (-match.score, match.project.name.lower()))
@@ -773,6 +778,7 @@ def build_tailoring_prompts(
     matches: Sequence[ProjectMatch],
     bullets_per_project: int = 3,
     max_words_per_bullet: int = 42,
+    tailoring_rules: str = "",
 ) -> Tuple[str, str]:
     """Build the constrained AI prompts for job-specific STAR writing."""
     if bullets_per_project not in {2, 3}:
@@ -841,6 +847,15 @@ Return one JSON object with this exact shape:
   ]
 }}
 """.strip()
+
+    if tailoring_rules.strip():
+        system_prompt += (
+            "\n\nActive resume tailoring policy:\n"
+            + tailoring_rules.strip()
+            + "\nApply relevant writing rules while returning only the JSON schema "
+            "above. This operation rewrites Technical Projects only; do not "
+            "rewrite other sections or claim an application was submitted."
+        )
 
     user_prompt = (
         f"Job title: {job_title}\n"
@@ -993,6 +1008,7 @@ def tailor_projects_with_ai(
     bullets_per_project: int = 3,
     max_words_per_bullet: int = 42,
     max_attempts: int = 2,
+    tailoring_rules: str = "",
 ) -> TailoringResult:
     """Generate and validate a job-specific set of project sections."""
     system_prompt, user_prompt = build_tailoring_prompts(
@@ -1002,6 +1018,7 @@ def tailor_projects_with_ai(
         matches=matches,
         bullets_per_project=bullets_per_project,
         max_words_per_bullet=max_words_per_bullet,
+        tailoring_rules=tailoring_rules,
     )
     if max_attempts < 1 or max_attempts > 3:
         raise JobSpecificResumeError("AI generation attempts must be between 1 and 3")
@@ -1301,6 +1318,23 @@ def compile_resume_pdf(
     return {"resume_pdf_path": str(pdf), "resume_text": text, "pdf_pages": pages}
 
 
+def load_tailoring_rules(config: Dict[str, Any]) -> str:
+    """Read the configured policy afresh and reject missing or empty files."""
+    value = config.get("precision_apply", {}).get("rules_file")
+    if not value:
+        return ""
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = Path(__file__).resolve().parent.parent / path
+    try:
+        rules = path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise JobSpecificResumeError(f"Cannot read tailoring rules: {path}") from exc
+    if not rules:
+        raise JobSpecificResumeError(f"Tailoring rules file is empty: {path}")
+    return rules
+
+
 def prepare_precision_resume(
     job: Dict[str, Any], config: Dict[str, Any], *, ai_service: Any = None
 ) -> Dict[str, Any]:
@@ -1308,6 +1342,7 @@ def prepare_precision_resume(
     settings = config.get("precision_apply", {})
     if not settings.get("enabled", False):
         return {}
+    tailoring_rules = load_tailoring_rules(config)
     from ronin.config import get_ronin_home
 
     root = Path(__file__).resolve().parent.parent
@@ -1358,6 +1393,7 @@ def prepare_precision_resume(
         matches=matches,
         bullets_per_project=int(settings.get("bullets_per_project", 3)),
         max_words_per_bullet=int(settings.get("max_words_per_bullet", 36)),
+        tailoring_rules=tailoring_rules,
     )
     run = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     destination = (
@@ -1390,6 +1426,7 @@ def prepare_precision_resume(
         resume_path=str(unique_source),
         pdf_path=compiled["resume_pdf_path"],
         pdf_pages=compiled["pdf_pages"],
+        tailoring_rules=tailoring_rules,
     )
     manifest_path.write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"

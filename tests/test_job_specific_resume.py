@@ -15,6 +15,8 @@ from ronin.job_specific_resume import (
     TailoringResult,
     index_local_projects,
     load_project_catalog,
+    load_tailoring_rules,
+    build_tailoring_prompts,
     render_latex_projects,
     replace_projects_section,
     select_projects,
@@ -142,6 +144,79 @@ def test_unreviewed_projects_are_not_eligible() -> None:
             "Python Intern",
             "Write Python services",
         )
+
+
+def test_internship_projects_are_excluded_even_with_review_override() -> None:
+    project = ProjectFact.from_dict(
+        {
+            "id": "internship-alias",
+            "name": "Ordering Platform",
+            "technologies": ["React"],
+            "included_in_experience": True,
+        },
+        1,
+    )
+    assert project.included_in_experience
+    for allow_unreviewed in (False, True):
+        with pytest.raises(JobSpecificResumeError, match="existing work experience"):
+            select_projects(
+                [project], "React Developer", "React", allow_unreviewed=allow_unreviewed
+            )
+    matches = select_projects(
+        [project, *_projects()], "React Developer", "React TypeScript REST", limit=1
+    )
+    assert matches[0].project.id == "commerce"
+
+
+def test_policy_is_reloaded_and_forwarded_to_writer(tmp_path) -> None:
+    policy = tmp_path / "rules.md"
+    policy.write_text("First policy", encoding="utf-8")
+    config = {"precision_apply": {"rules_file": str(policy)}}
+    assert load_tailoring_rules(config) == "First policy"
+    policy.write_text("Never duplicate internship work", encoding="utf-8")
+    rules = load_tailoring_rules(config)
+    matches = select_projects(_projects(), "React Intern", "React TypeScript", limit=1)
+    captured = []
+
+    class Writer:
+        def chat_completion(self, **kwargs):
+            captured.append(kwargs["system_prompt"])
+            return _valid_payload()
+
+    tailor_projects_with_ai(
+        ai_service=Writer(),
+        model="test",
+        job_id="1",
+        job_title="React Intern",
+        company="Example",
+        job_description="React TypeScript",
+        matches=matches,
+        bullets_per_project=2,
+        tailoring_rules=rules,
+    )
+    assert rules in captured[0]
+    assert "Technical Projects only" in captured[0]
+    system, _ = build_tailoring_prompts(
+        job_title="React Intern",
+        company="Example",
+        job_description="React",
+        matches=matches,
+        tailoring_rules=rules,
+    )
+    assert rules in system
+
+
+def test_missing_or_empty_policy_stops_precision_before_ai(tmp_path) -> None:
+    policy = tmp_path / "missing.md"
+    config = {"precision_apply": {"enabled": True, "rules_file": str(policy)}}
+    writer = SimpleNamespace(
+        chat_completion=lambda **kw: pytest.fail("Unexpected AI call")
+    )
+    with pytest.raises(JobSpecificResumeError, match="Cannot read tailoring rules"):
+        prepare_precision_resume({}, config, ai_service=writer)
+    policy.write_text("  \n", encoding="utf-8")
+    with pytest.raises(JobSpecificResumeError, match="file is empty"):
+        prepare_precision_resume({}, config, ai_service=writer)
 
 
 def test_validator_accepts_source_backed_star_copy() -> None:
@@ -429,9 +504,12 @@ def test_prepare_saves_pdf_and_selected_project_snapshot(tmp_path, monkeypatch) 
     base.write_text(
         r"DUPOON PTY LTD\section{Technical Projects}old\section{Skills}skills\end{document}"
     )
+    policy = tmp_path / "policy.md"
+    policy.write_text("Never duplicate internship work", encoding="utf-8")
 
     class Writer:
         def chat_completion(self, **kwargs):
+            assert "Never duplicate internship work" in kwargs["system_prompt"]
             return _valid_payload()
 
     def compile(source, **kwargs):
@@ -450,6 +528,7 @@ def test_prepare_saves_pdf_and_selected_project_snapshot(tmp_path, monkeypatch) 
         "precision_apply": {
             "enabled": True,
             "catalog": str(catalog),
+            "rules_file": str(policy),
             "base_resume": str(base),
             "output_dir": str(tmp_path / "out"),
             "project_limit": 1,
@@ -470,6 +549,7 @@ def test_prepare_saves_pdf_and_selected_project_snapshot(tmp_path, monkeypatch) 
     )
     assert manifest["pdf_path"] == result["tailored_resume_path"]
     assert manifest["resume_path"].endswith(".tex")
+    assert manifest["tailoring_rules"] == "Never duplicate internship work"
 
 
 def test_metadata_failure_stops_before_application(monkeypatch) -> None:

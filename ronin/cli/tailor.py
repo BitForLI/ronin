@@ -10,12 +10,13 @@ from typing import Any, Dict, Optional, Tuple
 from rich.console import Console
 from rich.table import Table
 
-from ronin.config import get_ronin_home, load_env
+from ronin.config import get_ronin_home, load_config, load_env
 from ronin.db import get_db_manager
 from ronin.job_specific_resume import (
     JobSpecificResumeError,
     catalog_to_prompt_preview,
     load_project_catalog,
+    load_tailoring_rules,
     prepare_precision_resume,
     select_projects,
     tailor_projects_with_ai,
@@ -185,6 +186,7 @@ def build_resume(
             )
             return 0
 
+        tailoring_rules = load_tailoring_rules(load_config())
         profile = load_profile()
         resolved_provider = (provider or profile.ai.analysis_provider).strip().lower()
         resolved_model = (model or profile.ai.analysis_model).strip()
@@ -199,6 +201,7 @@ def build_resume(
             matches=matches,
             bullets_per_project=int(bullets_per_project),
             max_words_per_bullet=int(max_words_per_bullet),
+            tailoring_rules=tailoring_rules,
         )
 
         destination = (

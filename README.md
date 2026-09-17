@@ -80,6 +80,9 @@ ronin tailor index --root C:\path\to\repositories
 Review `~/.ronin/projects.yaml`. Add source-backed situation, task, action and
 result facts, then set `needs_review: false` for entries you have verified. See
 `projects.example.yaml` for the schema.
+Mark projects already represented by an internship or other work entry with
+`included_in_experience: true`. These entries are never selected for Technical
+Projects, even when unreviewed projects are allowed.
 
 Preview project selection without an AI call or file write:
 
@@ -122,6 +125,7 @@ Git; your existing profile and saved answers stay unchanged.
 ```yaml
 enabled: true
 catalog: C:/path/to/reviewed-projects.yaml
+rules_file: C:/path/to/resume-tailoring-rules.md
 base_resume: C:/path/to/base-resume.tex
 project_limit: 3
 bullets_per_project: 3
@@ -142,6 +146,11 @@ write source-backed STAR bullets, replace only the template's projects section,
 compile, validate the page limit and selected project names, and save its
 evidence manifest. The template must be self-contained and use the `cvblocks`,
 `cvbody` and `cvbullets` definitions used by the project renderer.
+When configured, `rules_file` is read afresh for every automatic application and
+standalone generation, passed to the writer and saved in the automatic evidence
+manifest. A missing or empty configured policy stops generation before an AI
+call. Relative policy paths are resolved from the project root. This policy
+guides writing; it does not turn PDF page/text checks into visual layout review.
 
 Ronin uploads the new PDF, verifies its new document option is selected, and
 checks its unique filename on the review page before submitting. A generation,
