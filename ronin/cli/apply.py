@@ -180,6 +180,13 @@ def main():
                         console.print(
                             f"  [yellow]○[/yellow] {job_title} [dim](expired)[/dim]"
                         )
+                    elif result == "NEEDS_HUMAN":
+                        failed += 1
+                        db_manager.update_record(record_id, {"status": "NEEDS_HUMAN"})
+                        console.print(
+                            f"  [yellow]○[/yellow] {job_title} "
+                            f"[dim]({applier.application_entry_reason})[/dim]"
+                        )
                     else:
                         failed += 1
                         db_manager.update_record(record_id, {"status": "APP_ERROR"})

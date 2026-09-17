@@ -1636,6 +1636,13 @@ def _apply_records(
                 console.print(
                     f"[yellow]○[/yellow] {record.get('title', '')[:44]} [dim](expired)[/dim]"
                 )
+            elif result == "NEEDS_HUMAN":
+                failed += 1
+                db.update_record(record["id"], {"status": "NEEDS_HUMAN"})
+                console.print(
+                    f"[yellow]○[/yellow] {record.get('title', '')[:44]} "
+                    f"[dim]({applier.application_entry_reason})[/dim]"
+                )
             else:
                 failed += 1
                 db.update_record(record["id"], {"status": "APP_ERROR"})

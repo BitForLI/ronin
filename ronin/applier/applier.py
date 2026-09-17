@@ -3,6 +3,7 @@
 import time
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 from loguru import logger
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
@@ -30,6 +31,14 @@ class SeekApplier(BaseApplier):
         "input[name='document-select'][type='radio'], "
         "input[name='resume'][type='radio'], "
         "input[data-testid*='resume'][type='radio']"
+    )
+    SEEK_PROFILE_ENTRY_SELECTOR = (
+        "//*[self::button or self::a or self::input]"
+        "[@id='__authseek' or "
+        "translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', "
+        "'abcdefghijklmnopqrstuvwxyz')='apply with seek' or "
+        "translate(@value, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', "
+        "'abcdefghijklmnopqrstuvwxyz')='apply with seek']"
     )
 
     COMMON_PATTERNS = {
@@ -83,6 +92,96 @@ class SeekApplier(BaseApplier):
         self.current_resume_profile = None
         self.current_resume_text = None
         self.current_resume_pdf = None
+        self.application_entry_reason = ""
+
+    def _seek_profile_entry_buttons(self) -> list:
+        """Find visible SEEK profile-import entry points, not final submit buttons."""
+        return [
+            element
+            for element in self.chrome_driver.driver.find_elements(
+                By.XPATH, self.SEEK_PROFILE_ENTRY_SELECTOR
+            )
+            if element.is_displayed() and element.is_enabled()
+        ]
+
+    def _application_entry_state(self, driver) -> str:
+        """Classify the actual loaded form rather than the advertisement label."""
+        location = urlsplit(driver.current_url)
+        host = (location.hostname or "").lower()
+        path = location.path.lower()
+        seek_host = host in {"au.seek.com", "www.seek.com.au", "seek.com.au"}
+        if seek_host and path.startswith("/awsk/authorize"):
+            return "SEEK_AUTHORIZATION"
+        if host in {"login.seek.com", "accounts.google.com"} or (
+            seek_host and path.startswith("/sign-in")
+        ):
+            return "LOGIN_REQUIRED"
+        if seek_host and path.endswith("/apply/external"):
+            return "EXTERNAL_VISIT"
+        if seek_host:
+            if driver.find_elements(By.CSS_SELECTOR, self.RESUME_RADIO_SELECTOR):
+                return "NATIVE"
+            return ""
+        if self._seek_profile_entry_buttons():
+            return "SEEK_PROFILE_ENTRY"
+        if driver.find_elements(By.CSS_SELECTOR, "form input, form select"):
+            return "EXTERNAL_FORM"
+        return ""
+
+    def _resolve_application_entry(self) -> Optional[str]:
+        """Follow Apply with SEEK to its consent page without granting access.
+
+        External ATS profile import uses the SEEK default resume, not the
+        job-specific PDF. Consent must not be mistaken for a native apply form.
+        """
+        driver = self.chrome_driver.driver
+        driver.implicitly_wait(0)
+        try:
+            state = WebDriverWait(driver, 20).until(self._application_entry_state)
+            if state == "SEEK_PROFILE_ENTRY":
+                buttons = self._seek_profile_entry_buttons()
+                if len(buttons) != 1:
+                    self.application_entry_reason = "Multiple Apply with SEEK entries; choose the intended entry manually."
+                    return "NEEDS_HUMAN"
+                original_url = driver.current_url
+                original_handles = set(driver.window_handles)
+                buttons[0].click()
+                WebDriverWait(driver, 20).until(
+                    lambda d: bool(set(d.window_handles) - original_handles)
+                    or d.current_url != original_url
+                )
+                new_handles = set(driver.window_handles) - original_handles
+                if len(new_handles) > 1:
+                    self.application_entry_reason = (
+                        "Multiple SEEK windows opened; inspect manually."
+                    )
+                    return "NEEDS_HUMAN"
+                if new_handles:
+                    driver.switch_to.window(new_handles.pop())
+                state = WebDriverWait(driver, 20).until(self._application_entry_state)
+            if state == "NATIVE":
+                return None
+            if state == "LOGIN_REQUIRED":
+                self.chrome_driver.is_logged_in = False
+                self.application_entry_reason = (
+                    "Sign in through the Ronin browser window, then retry."
+                )
+            elif state == "SEEK_AUTHORIZATION":
+                self.application_entry_reason = (
+                    "Apply with SEEK detected. The employer requests access to your SEEK "
+                    "profile and DEFAULT resume. Access has NOT been granted and the "
+                    "application has NOT been submitted. Review consent and ensure the "
+                    "job-specific PDF replaces any imported default before submitting."
+                )
+            else:
+                self.application_entry_reason = (
+                    "External employer form detected; it requires the external application "
+                    "flow. Visiting the employer site is NOT a submitted application."
+                )
+            logger.warning(self.application_entry_reason)
+            return "NEEDS_HUMAN"
+        finally:
+            driver.implicitly_wait(10)
 
     @property
     def board_name(self) -> str:
@@ -96,6 +195,7 @@ class SeekApplier(BaseApplier):
     def _navigate_to_job(self, job_id: str):
         """Navigate to the specific job application page."""
         try:
+            self.application_entry_reason = ""
             url = f"https://www.seek.com.au/job/{job_id}"
             self.chrome_driver.navigate_to(url)
 
@@ -167,6 +267,7 @@ class SeekApplier(BaseApplier):
                         "SEEK application login has expired. Sign in through the "
                         "Ronin browser window, then retry."
                     )
+                return self._resolve_application_entry()
             except TimeoutException:
                 # A missing apply button is not proof that an application was
                 # submitted. Keep the job retryable instead of recording a
@@ -894,6 +995,13 @@ class SeekApplier(BaseApplier):
         """Check if application was successfully submitted."""
         try:
             current_url = self.chrome_driver.current_url.lower()
+            location = urlsplit(current_url)
+            # SEEK adds external-site visits to its applied-jobs list even
+            # without an employer submission. This is not a success receipt.
+            if location.path.lower().endswith("/apply/external") or (
+                location.path.lower().startswith("/awsk/authorize")
+            ):
+                return False
             page_source = self.chrome_driver.page_source.lower()
 
             # Check URL
@@ -977,6 +1085,8 @@ class SeekApplier(BaseApplier):
                 return "STALE"
             if navigation_result == "APP_ERROR":
                 return "APP_ERROR"
+            if navigation_result == "NEEDS_HUMAN":
+                return "NEEDS_HUMAN"
 
             self._handle_resume(
                 job_id=job_id,
