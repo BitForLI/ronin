@@ -180,7 +180,7 @@ def main():
                         console.print(
                             f"  [yellow]○[/yellow] {job_title} [dim](expired)[/dim]"
                         )
-                    elif result == "NEEDS_HUMAN":
+                    elif result in {"NEEDS_HUMAN", "READY_FOR_REVIEW"}:
                         failed += 1
                         db_manager.update_record(record_id, {"status": "NEEDS_HUMAN"})
                         console.print(

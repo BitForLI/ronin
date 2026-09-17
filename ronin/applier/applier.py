@@ -122,6 +122,10 @@ class SeekApplier(BaseApplier):
             if driver.find_elements(By.CSS_SELECTOR, self.RESUME_RADIO_SELECTOR):
                 return "NATIVE"
             return ""
+        from ronin.applier.idibu import IdibuApplication
+
+        if IdibuApplication.supports(driver):
+            return "IDIBU_FORM"
         if self._seek_profile_entry_buttons():
             return "SEEK_PROFILE_ENTRY"
         if driver.find_elements(By.CSS_SELECTOR, "form input, form select"):
@@ -161,6 +165,8 @@ class SeekApplier(BaseApplier):
                 state = WebDriverWait(driver, 20).until(self._application_entry_state)
             if state == "NATIVE":
                 return None
+            if state == "IDIBU_FORM":
+                return "EXTERNAL_SUPPORTED"
             if state == "LOGIN_REQUIRED":
                 self.chrome_driver.is_logged_in = False
                 self.application_entry_reason = (
@@ -182,6 +188,80 @@ class SeekApplier(BaseApplier):
             return "NEEDS_HUMAN"
         finally:
             driver.implicitly_wait(10)
+
+    def _confirm_external_submission(self, review: dict) -> bool:
+        """Default to review-only; live external submissions require per-job consent."""
+        import sys
+
+        from rich.console import Console
+        from rich.prompt import Confirm
+
+        console = Console()
+        console.print("External application review:", review)
+        if self.config.get("application", {}).get("external_dry_run", True):
+            return False
+        if not sys.stdin.isatty():
+            return False
+        return Confirm.ask(
+            "Submit this application and agree to the employer's privacy policy?",
+            default=False,
+        )
+
+    def _apply_idibu_application(
+        self, title: str, company: str, work_type: Optional[str]
+    ) -> str:
+        """Use the verified PDF and saved facts, not SEEK profile-import defaults."""
+        from ronin.applier.idibu import IdibuApplication
+
+        try:
+            if self.profile is None or not self.current_resume_pdf:
+                raise ValueError(
+                    "A saved profile and verified application PDF are required"
+                )
+            import json
+
+            output_dir = Path(self.current_resume_pdf).parent.parent / "idibu-review"
+            saved_review = output_dir / "review.json"
+            saved_letter = output_dir / "cover-letter.txt"
+            if saved_review.is_file() and saved_letter.is_file():
+                previous = json.loads(saved_review.read_text(encoding="utf-8"))
+                if (
+                    previous.get("company") != company
+                    or previous.get("title") != title
+                    or previous.get("resume_pdf_path")
+                    != str(Path(self.current_resume_pdf).resolve())
+                ):
+                    raise ValueError(
+                        "Existing external review belongs to another application"
+                    )
+                letter = {"response": saved_letter.read_text(encoding="utf-8")}
+            else:
+                letter = self.cover_letter_generator.generate_cover_letter(
+                    job_description=self.current_job_description,
+                    title=title,
+                    company_name=company,
+                    key_tools=self.current_key_tools,
+                    resume_text=self.current_resume_text,
+                    work_type=work_type,
+                )
+            if not letter or not letter.get("response"):
+                return "COVER_LETTER_FAILED"
+            adapter = IdibuApplication(self.chrome_driver.driver, self.profile)
+            review = adapter.prepare(
+                self.current_resume_pdf, letter["response"], output_dir, company, title
+            )
+            self.application_entry_reason = f"External application prepared, NOT submitted. Review: {output_dir / 'review.json'}"
+            if not self._confirm_external_submission(review):
+                return "READY_FOR_REVIEW"
+            return "APPLIED" if adapter.submit(output_dir) else "APP_ERROR"
+        except Exception as exc:
+            # Never run the native success detector on an ATS form: embedded
+            # scripts can contain 'submitted' before any application is sent.
+            self.application_entry_reason = (
+                f"External application stopped; verify before retrying: {exc}"
+            )
+            logger.warning(self.application_entry_reason)
+            return "NEEDS_HUMAN"
 
     @property
     def board_name(self) -> str:
@@ -1059,6 +1139,7 @@ class SeekApplier(BaseApplier):
                 )
                 return "PRECISION_RESUME_REQUIRED"
             self.current_resume_text = resume_text
+            self.current_resume_pdf = resume_pdf_path or None
             self.question_handler.ai_handler.resume_text_override = resume_text
             # Initialize chrome driver if not already initialized
             self.chrome_driver.initialize()
@@ -1087,6 +1168,8 @@ class SeekApplier(BaseApplier):
                 return "APP_ERROR"
             if navigation_result == "NEEDS_HUMAN":
                 return "NEEDS_HUMAN"
+            if navigation_result == "EXTERNAL_SUPPORTED":
+                return self._apply_idibu_application(title, company_name, work_type)
 
             self._handle_resume(
                 job_id=job_id,

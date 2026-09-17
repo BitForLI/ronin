@@ -6,6 +6,8 @@ import pytest
 
 import ronin.applier.applier as module
 from ronin.applier.applier import SeekApplier
+from ronin.applier.idibu import IdibuApplication
+from ronin.profile import Profile
 
 
 class EntryButton:
@@ -146,3 +148,39 @@ def test_needs_human_stops_before_resume_upload(monkeypatch):
         applier.apply_to_job("1", "JD", 0, "Python", "Company", "Junior")
         == "NEEDS_HUMAN"
     )
+
+
+def test_idibu_uses_current_student_visa_not_future_graduate_visa():
+    profile = Profile(
+        personal={
+            "name": "Example Candidate",
+            "email": "candidate@example.com",
+            "phone": "+61 400 000 000",
+            "location": "Sydney, NSW",
+        },
+        work_rights={
+            "citizenship": "Chinese citizen",
+            "visa_status": (
+                "Australian Student visa (subclass 500); eligible to apply "
+                "for a Temporary Graduate visa (subclass 485) after graduation"
+            ),
+        },
+    )
+    application = IdibuApplication(None, profile)
+    values = application._profile_values()
+    assert values["work_rights"] == "subclass 500"
+    assert values["clearance"] == "None"
+    assert values["region"] == "New South Wales"
+
+
+def test_idibu_requires_exact_visa_option():
+    field = {
+        "label": "Work Right Status",
+        "options": [
+            {"text": "Subclass 485 – Temporary Graduate Visa", "value": "485"},
+            {"text": "Subclass 500 – Student Visa", "value": "500"},
+        ],
+    }
+    assert IdibuApplication._option(field, "subclass 500")["value"] == "500"
+    with pytest.raises(ValueError):
+        IdibuApplication._option(field, "subclass 482")

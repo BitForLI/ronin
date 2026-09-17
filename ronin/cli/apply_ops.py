@@ -1636,7 +1636,7 @@ def _apply_records(
                 console.print(
                     f"[yellow]○[/yellow] {record.get('title', '')[:44]} [dim](expired)[/dim]"
                 )
-            elif result == "NEEDS_HUMAN":
+            elif result in {"NEEDS_HUMAN", "READY_FOR_REVIEW"}:
                 failed += 1
                 db.update_record(record["id"], {"status": "NEEDS_HUMAN"})
                 console.print(
