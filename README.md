@@ -1,10 +1,9 @@
 # Ronin - AI-Powered Job Application Automation
 
-Ronin automatically searches job boards, scores every listing using AI, picks
-the right resume for each role, writes a tailored cover letter, and submits
-applications -- all while you do something better with your time.
-
-Set it up once. Run one command. Wake up to a full pipeline of applications.
+Ronin searches job boards, scores listings with Codex, selects resumes, writes
+role-specific cover letters, and can submit supported SEEK-native applications.
+External forms need a separate workflow and may require review or manual action.
+This fork adds evidence-backed project selection and job-specific LaTeX resumes.
 
 ---
 
@@ -29,15 +28,15 @@ Set it up once. Run one command. Wake up to a full pipeline of applications.
 1. **Search** -- Ronin scrapes Seek.com.au and LinkedIn (guest job search)
    for jobs matching your keywords. LinkedIn also powers people-search
    outreach.
-2. **Score** -- Each job description is sent to an AI model (Claude or GPT)
-   which scores it 0-100 based on your skills, preferences, and red flags.
+2. **Score** -- Codex analyses job descriptions against your saved skills,
+   preferences, and red flags and returns a 0-100 score when analysis succeeds.
 3. **Select** -- The AI picks the best resume profile for each job and
    classifies it (contract vs. long-term), with archetype-aware matching.
-4. **Apply** -- Seek Quick Apply jobs go through the deterministic Chrome
-   applier (`make apply`). Everything else — LinkedIn Easy Apply and
-   external ATSes (Workday, PageUp, Greenhouse, ...) — goes through the
-   agent applier (`make apply-external`), which fills forms, uploads the
-   matching resume PDF, and navigates to submit.
+4. **Apply** -- Supported SEEK-native forms use the Chrome applier. An Idibu
+   form reached through SEEK can be prepared with the verified PDF, then held
+   for per-job review and consent. Other external ATS and LinkedIn forms use
+   the separate agent workflow, which defaults to dry-run and is not a promise
+   that every application can be submitted.
 5. **Learn** -- Ronin can parse Gmail outcomes (rejection, callback,
    interview, offer) and feed conversion signals back into future scoring.
 
@@ -46,7 +45,7 @@ Set it up once. Run one command. Wake up to a full pipeline of applications.
 ## Quick Start
 
 ```
-git clone https://github.com/automationchad/ronin.git
+git clone --branch codex/job-specific-resumes https://github.com/BitForLI/ronin.git
 cd ronin
 pip install .
 ronin setup
@@ -60,6 +59,24 @@ ronin apply
 ```
 
 The rest of this document walks through every step in detail.
+
+---
+
+## Fork scope and evidence
+
+This fork builds on [upstream Ronin](https://github.com/wmarzella/ronin)'s
+job-search and browser-application workflow. The full product capabilities are
+described above; the following are identifiable changes in this branch:
+
+| Area | Implementation |
+|---|---|
+| ChatGPT-signed-in Codex integration | [`ronin/ai.py`](ronin/ai.py) |
+| Reviewed project ranking, source-fact prompts and output validation | [`ronin/job_specific_resume.py`](ronin/job_specific_resume.py) and [`tests/test_job_specific_resume.py`](tests/test_job_specific_resume.py) |
+| Job-specific PDF preparation and application metadata | [`ronin/cli/tailor.py`](ronin/cli/tailor.py) and [`ronin/cli/applications.py`](ronin/cli/applications.py) |
+| SEEK-native, profile-consent and supported Idibu form handling | [`ronin/applier/applier.py`](ronin/applier/applier.py) |
+
+These source links support implementation claims. They do not establish that
+every job board, ATS, login session or AI request succeeds in practice.
 
 ---
 
@@ -83,6 +100,15 @@ result facts, then set `needs_review: false` for entries you have verified. See
 Mark projects already represented by an internship or other work entry with
 `included_in_experience: true`. These entries are never selected for Technical
 Projects, even when unreviewed projects are allowed.
+
+Each precision run reloads the saved catalog and tailoring rules; it does not
+re-read GitHub source code or check whether a repository has new commits.
+Recheck relevant code and tests when a project changes or a job calls for an
+uncatalogued capability, then update the catalog. `reviewed_commit`, when
+present, is a human audit reference, not an automatic freshness check.
+Validation checks project IDs, listed technologies, evidence IDs, and numeric
+claims, but it cannot prove that every AI sentence accurately describes the
+source. Review the generated PDF and evidence manifest before submission.
 
 Preview project selection without an AI call or file write:
 
@@ -162,9 +188,11 @@ of its match score; a saved SEEK cover letter is never reused.
 
 Add `--pdf` to `ronin tailor build` to compile a preview without applying. Supply
 explicit `--catalog` and `--base-resume` paths for that standalone command.
-Automatic precision upload currently covers SEEK-native forms, not external
-employer application systems. Repository indexing still requires fact review;
-it does not automatically trust arbitrary README claims or change your visa.
+Automatic precision upload covers SEEK-native forms. The Idibu integration can
+prepare a verified job-specific PDF for review and requires per-job consent
+before submission; other external employer systems are not covered by that
+native path. Repository indexing still requires fact review; it does not
+automatically trust arbitrary README claims or change your visa.
 
 ---
 
@@ -230,7 +258,7 @@ line one at a time:
 
 ```
 # 1. Download the code
-git clone https://github.com/automationchad/ronin.git
+git clone --branch codex/job-specific-resumes https://github.com/BitForLI/ronin.git
 cd ronin
 
 # 2. Create a virtual environment (keeps Ronin's packages separate)
@@ -260,7 +288,7 @@ each line one at a time:
 
 ```
 # 1. Download the code
-git clone https://github.com/automationchad/ronin.git
+git clone --branch codex/job-specific-resumes https://github.com/BitForLI/ronin.git
 cd ronin
 
 # 2. Create a virtual environment
@@ -434,7 +462,7 @@ ronin apply contacts --seed-recruiter-email jonny.church@pra.com.au --seed-recru
 Optional call CTA in message template:
 
 - Set `contact_intel.outreach.cta_phone` in `~/.ronin/config.yaml`, or
-- Pass `--cta-phone "0413414869"` at runtime
+- Pass `--cta-phone "<your-phone-number>"` at runtime
 
 ### Applying to Jobs
 
@@ -801,7 +829,8 @@ On macOS, check the log at `~/.ronin/logs/launchd_search.log` for errors.
 - Increase `search.date_range` to look further back (default is 2 days).
 - Set `search.location` to a broader area (e.g. `"All-Australia"`).
 - Set `scraping.quick_apply_only` to `false` if you want to include jobs
-  without Quick Apply (note: Ronin can only auto-apply to Quick Apply jobs).
+  without Quick Apply. SEEK-native submission and external application flows
+  have different support and review requirements.
 
 ### "Profile not found"
 
