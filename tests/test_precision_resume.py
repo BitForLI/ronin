@@ -76,6 +76,26 @@ def test_job_prompts_omit_binary_database_vectors():
     assert json.loads(json.dumps(context)) == context
 
 
+@pytest.mark.parametrize("amount,expected", [(0, "Negotiable"), (80000, "AUD $80000")])
+def test_salary_zero_means_unspecified_not_free_work(amount, expected):
+    from ronin.applier.ai_handler import AIResponseHandler
+
+    handler = AIResponseHandler.__new__(AIResponseHandler)
+    handler.profile = SimpleNamespace(
+        professional=SimpleNamespace(salary_min=amount, salary_max=amount)
+    )
+    handler.config = {}
+    response = handler._process_ai_response(
+        {"response": f"AUD ${amount}"},
+        {"type": "textarea", "question": "What is your expected annual salary?"},
+    )
+    assert response == {"response": expected}
+    assert handler._process_ai_response(
+        {"response": "AUD $0"},
+        {"type": "textarea", "question": "What is your current salary?"},
+    ) == {"response": "AUD $0"}
+
+
 def selection(pid="p"):
     return {
         "requirements": [

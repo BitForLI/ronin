@@ -1683,25 +1683,25 @@ def _apply_records(
                 )
                 db.record_application_submission(app_record)
                 console.print(
-                    f"[green]✓[/green] {record.get('title', '')[:44]} @ {record.get('company_name', '')[:24]}"
+                    f"[green]Applied[/green] {record.get('title', '')[:44]} @ {record.get('company_name', '')[:24]}"
                 )
             elif result == "STALE":
                 stale += 1
                 db.update_record(record["id"], {"status": "STALE"})
                 console.print(
-                    f"[yellow]○[/yellow] {record.get('title', '')[:44]} [dim](expired)[/dim]"
+                    f"[yellow]Expired[/yellow] {record.get('title', '')[:44]}"
                 )
             elif result in {"NEEDS_HUMAN", "READY_FOR_REVIEW"}:
                 failed += 1
                 db.update_record(record["id"], {"status": "NEEDS_HUMAN"})
                 console.print(
-                    f"[yellow]○[/yellow] {record.get('title', '')[:44]} "
+                    f"[yellow]Review required[/yellow] {record.get('title', '')[:44]} "
                     f"[dim]({applier.application_entry_reason})[/dim]"
                 )
             else:
                 failed += 1
                 db.update_record(record["id"], {"status": "APP_ERROR"})
-                console.print(f"[red]✗[/red] {record.get('title', '')[:44]}")
+                console.print(f"[red]Failed[/red] {record.get('title', '')[:44]}")
 
     except Exception as exc:
         logger.error(f"Batch apply failed: {exc}")

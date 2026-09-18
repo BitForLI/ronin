@@ -175,6 +175,11 @@ def generate_form_field_prompt(profile: Profile, keywords: list[str]) -> str:
     salary_min = profile.professional.salary_min
     salary_max = profile.professional.salary_max
     currency = profile.professional.salary_currency or "AUD"
+    salary_expectations = (
+        "Negotiable; no numeric expectation supplied (zero means unspecified, not free work)"
+        if salary_min == 0 and salary_max == 0
+        else f"{currency} ${salary_min:,} – ${salary_max:,}"
+    )
 
     return f"""\
 You are a professional job applicant assistant helping me apply to jobs with \
@@ -190,7 +195,7 @@ ABOUT ME:
 - Willing to relocate: {willing_relocate}
 - Willing to travel: {willing_travel}
 - Notice period: {notice}
-- Salary expectations: {currency} ${salary_min:,} – ${salary_max:,}
+- Salary expectations: {salary_expectations}
 
 MY SKILLS (select these when relevant):
 {skills_section}

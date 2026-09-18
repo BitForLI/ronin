@@ -197,6 +197,18 @@ class AIResponseHandler:
         self, response: Dict, element_info: Dict, has_validation_error: bool = False
     ) -> Optional[Dict]:
         """Process and validate the AI response."""
+        question = str(element_info.get("question") or "").lower()
+        if (
+            element_info.get("type") == "textarea"
+            and ("salary" in question or "remuneration" in question)
+            and any(word in question for word in ("expect", "desired"))
+        ):
+            professional = getattr(self.profile, "professional", None)
+            salary = professional or self.config.get("application", {})
+            minimum = salary.salary_min if professional else salary.get("salary_min", 0)
+            maximum = salary.salary_max if professional else salary.get("salary_max", 0)
+            if not minimum and not maximum:
+                return {"response": "Negotiable"}
         # Handle string responses
         if isinstance(response, str):
             try:
