@@ -18,6 +18,7 @@ from ronin.job_specific_resume import (
 from ronin.precision_resume import (
     balance_resume_margins,
     inspect_resume_layout,
+    job_prompt_context,
     read_base_skills,
     read_project_sources,
     repair_resume_layout,
@@ -65,6 +66,14 @@ JOB = {
     "company_name": "Example",
     "description": "Build React interfaces and Python APIs.",
 }
+
+
+def test_job_prompts_omit_binary_database_vectors():
+    record = dict(JOB, embedding=b"\x00\x01", private_metadata={"ignored": True})
+    context = job_prompt_context(record)
+    assert context["description"] == JOB["description"]
+    assert "embedding" not in context and "private_metadata" not in context
+    assert json.loads(json.dumps(context)) == context
 
 
 def selection(pid="p"):

@@ -136,6 +136,21 @@ def read_project_sources(
     return documents
 
 
+def job_prompt_context(job: Dict[str, Any]) -> Dict[str, str]:
+    """Send job facts to the writer, not binary database vectors or metadata."""
+    return {
+        key: str(job.get(key) or "")
+        for key in (
+            "job_id",
+            "title",
+            "company_name",
+            "description",
+            "location",
+            "work_type",
+        )
+    }
+
+
 def semantic_project_selection(
     projects: Sequence[ProjectFact],
     job: Dict[str, Any],
@@ -169,7 +184,7 @@ Use concise Australian English. Quotes must come from the job description.
 """,
         user_message=json.dumps(
             {
-                "job": job,
+                "job": job_prompt_context(job),
                 "projects": [
                     {
                         "id": p.id,
@@ -318,7 +333,7 @@ or em dashes. The original prose is a style reference, not independent proof.
     )
     user = json.dumps(
         {
-            "job": job,
+            "job": job_prompt_context(job),
             "requirements": requirements,
             "skills": skills,
             "verified_project_technologies": verified_technologies,
