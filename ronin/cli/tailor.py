@@ -46,10 +46,17 @@ def prepare_application_resume(
     }
     if not db.update_record(int(record["id"]), metadata):
         raise JobSpecificResumeError(
-            "Tailored PDF generated but metadata could not be saved; application stopped"
+            "Tailored PDF generated but metadata could not be saved; "
+            "application stopped"
         )
     record.update(metadata)
     console.print(f"[cyan]Job-specific PDF:[/cyan] {prepared['resume_pdf_path']}")
+    for gap in prepared.get("coverage_gaps", []):
+        console.print(f"[yellow]Project evidence gap:[/yellow] {gap['reason']}")
+        if gap.get("suggested_project"):
+            console.print(
+                f"[yellow]Suggested new project:[/yellow] {gap['suggested_project']}"
+            )
     return {
         "resume_pdf_path": prepared["resume_pdf_path"],
         "resume_text": prepared["resume_text"],
@@ -150,7 +157,7 @@ def build_resume(
     project_limit: int = 3,
     min_project_score: float = 5.0,
     bullets_per_project: int = 3,
-    max_words_per_bullet: int = 42,
+    max_words_per_bullet: int = 65,
     provider: str = "",
     model: str = "",
     preview: bool = False,
@@ -166,10 +173,69 @@ def build_resume(
             title=title,
             company=company,
         )
+        config = load_config()
+        settings = dict(config.get("precision_apply", {}))
+        if settings.get("full_resume", False) and not preview:
+            # Standalone generation and applications use the same preparation.
+            from ronin.ai import CodexService
+
+            for key, value in (
+                ("catalog", catalog),
+                ("base_resume", base_resume),
+                ("output_dir", output_dir),
+            ):
+                if value:
+                    settings[key] = str(Path(value).expanduser().resolve())
+            settings.update(
+                enabled=True,
+                project_limit=int(project_limit),
+                bullets_per_project=int(bullets_per_project),
+            )
+            if model:
+                settings["model"] = model
+            settings["max_words_per_bullet"] = int(max_words_per_bullet)
+            config["precision_apply"] = settings
+            writer = CodexService(
+                default_model=settings.get("model", "gpt-5.6-terra"),
+                reasoning_effort="low",
+            )
+            try:
+                prepared = prepare_precision_resume(job, config, ai_service=writer)
+            finally:
+                writer.close()
+            if db is not None and db_record is not None:
+                metadata = {
+                    k: prepared[k]
+                    for k in (
+                        "selected_projects",
+                        "tailored_resume_path",
+                        "tailoring_manifest_path",
+                        "tailoring_generated_at",
+                    )
+                }
+                if not db.update_record(int(db_record["id"]), metadata):
+                    raise JobSpecificResumeError(
+                        "Resume prepared but metadata could not be saved"
+                    )
+            console.print(f"[green]Tailored PDF:[/green] {prepared['resume_pdf_path']}")
+            console.print(
+                "[green]Evidence manifest:[/green] "
+                f"{prepared['tailoring_manifest_path']}"
+            )
+            for gap in prepared.get("coverage_gaps", []):
+                console.print(
+                    f"[yellow]Project evidence gap:[/yellow] {gap['reason']}; "
+                    f"{gap.get('suggested_project', '')}"
+                )
+            return 0
         catalog_path = (
             Path(catalog).expanduser().resolve()
             if catalog
-            else (get_ronin_home() / "projects.yaml").resolve()
+            else (
+                Path(__file__).resolve().parent.parent.parent / settings["catalog"]
+                if settings.get("catalog")
+                else get_ronin_home() / "projects.yaml"
+            ).resolve()
         )
         projects = load_project_catalog(catalog_path)
         matches = select_projects(
@@ -182,7 +248,8 @@ def build_resume(
         _show_matches(catalog_to_prompt_preview(matches))
         if preview:
             console.print(
-                "[dim]Preview only. No AI call, resume write or database update was made.[/dim]"
+                "[dim]Preview only. No AI call, resume write or database "
+                "update was made.[/dim]"
             )
             return 0
 
@@ -219,7 +286,6 @@ def build_resume(
             base_resume=(Path(base_resume) if base_resume else None),
         )
         if pdf:
-            from ronin.config import load_config
             from ronin.job_specific_resume import compile_resume_pdf
 
             if not base_resume or Path(base_resume).suffix.lower() != ".tex":

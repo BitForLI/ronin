@@ -132,7 +132,7 @@ def _build_parser() -> argparse.ArgumentParser:
     tailor_build.add_argument(
         "--bullets-per-project", type=int, choices=[2, 3], default=3
     )
-    tailor_build.add_argument("--max-words-per-bullet", type=int, default=42)
+    tailor_build.add_argument("--max-words-per-bullet", type=int, default=65)
     tailor_build.add_argument(
         "--provider",
         choices=["codex", "anthropic", "openai"],

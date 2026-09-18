@@ -8,6 +8,9 @@ projects:
   - id: example-api
     name: ExampleAPI
     repository: https://github.com/example/example-api
+    # Required when precision_apply.read_sources is enabled:
+    local_path: ../repositories/example-api
+    reviewed_commit: REPLACE_WITH_REVIEWED_GIT_COMMIT
     summary: A sample service used to demonstrate the project fact schema.
     technologies:
       - Python

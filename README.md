@@ -101,16 +101,19 @@ Mark projects already represented by an internship or other work entry with
 `included_in_experience: true`. These entries are never selected for Technical
 Projects, even when unreviewed projects are allowed.
 
-Each precision run reloads the saved catalog and tailoring rules; it does not
-re-read GitHub source code or check whether a repository has new commits.
-Recheck relevant code and tests when a project changes or a job calls for an
-uncatalogued capability, then update the catalog. `reviewed_commit`, when
-present, is a human audit reference, not an automatic freshness check.
+Each precision run reloads the saved catalog and tailoring rules. With
+`read_sources: true`, it also reads README and cited source excerpts from the
+local repository's reviewed Git snapshot. Each entry needs `local_path` (relative
+to the catalog) and `reviewed_commit`. Code changes since review stop generation;
+documentation-only branch differences do not prevent reading the reviewed version.
+It does not fetch GitHub or review the entire repository on every run. Recheck
+code and tests, then update the catalog when new capabilities need verification.
 Validation checks project IDs, listed technologies, evidence IDs, and numeric
 claims, but it cannot prove that every AI sentence accurately describes the
 source. Review the generated PDF and evidence manifest before submission.
 
-Preview project selection without an AI call or file write:
+Preview keyword-ranked project candidates without an AI call or file write
+(the final semantic selection may differ):
 
 ```bash
 ronin tailor build --job-id 12345678 --preview
@@ -150,12 +153,18 @@ Git; your existing profile and saved answers stay unchanged.
 
 ```yaml
 enabled: true
+semantic_selection: true
+full_resume: true
+experience_project_id: your-internship-project-id
+read_sources: true
+check_layout: true
+verify_claims: true
 catalog: C:/path/to/reviewed-projects.yaml
 rules_file: C:/path/to/resume-tailoring-rules.md
 base_resume: C:/path/to/base-resume.tex
 project_limit: 3
 bullets_per_project: 3
-max_words_per_bullet: 36
+max_words_per_bullet: 65
 max_pages: 1
 # Optional when XeLaTeX or Tectonic is not on PATH:
 compiler_command:
@@ -166,17 +175,37 @@ compiler_command:
   - "{tex}"
 ```
 
-Both `ronin apply` and `ronin apply batch <archetype>` now prepare a fresh
-job-specific PDF before applying: select three reviewed matching projects,
-write source-backed STAR bullets, replace only the template's projects section,
-compile, validate the page limit and selected project names, and save its
-evidence manifest. The template must be self-contained and use the `cvblocks`,
+Both `ronin apply` and `ronin apply batch <archetype>` prepare a fresh
+job-specific PDF before applying. With the full settings above, the same workflow
+also runs for `ronin tailor build`, without submitting an application:
+
+1. Extract required/preferred capabilities with exact JD quotations and select
+   three complementary reviewed projects by engineering fit, not just word counts.
+2. Read reviewed local README/source excerpts; rewrite project STAR bullets.
+3. Rewrite the one mapped internship's three bullets and technology header;
+   select/reorder Skills from existing values or the selected projects' verified
+   technologies, preserving the original categories.
+4. Compile and measure rendered bullet lines, third-line fill (at least 85%),
+   page overflow, text beyond the page and visible top/bottom whitespace (within 8pt).
+   Internship bullets must occupy three filled lines; project bullets use two
+   or three, and each Skills category occupies one line. Up to three drafts can
+   shorten/expand supported prose or rebalance vertical
+   margins. Font sizes are not reduced. Margin-only repairs do not call AI again.
+5. Run a separate semantic claim check and save requirements, selection reasons,
+   coverage gaps, rewritten sections, source fingerprints and layout measurements.
+
+Employer identity, dates, location, contact details, education and visa are copied
+unchanged from the template. A mapped internship must have
+`included_in_experience: true`; it is excluded from the independent projects.
+Coverage gaps and suggested new projects are displayed, not invented as experience.
+The template must be self-contained and use the `cvblocks`,
 `cvbody` and `cvbullets` definitions used by the project renderer.
 When configured, `rules_file` is read afresh for every automatic application and
 standalone generation, passed to the writer and saved in the automatic evidence
 manifest. A missing or empty configured policy stops generation before an AI
 call. Relative policy paths are resolved from the project root. This policy
-guides writing; it does not turn PDF page/text checks into visual layout review.
+guides writing. Glyph-position checks enforce the configured layout policy, but
+human visual review remains useful for subtler design and factual judgement.
 
 Ronin uploads the new PDF, verifies its new document option is selected, and
 checks its unique filename on the review page before submitting. A generation,
@@ -186,8 +215,10 @@ The company-specific cover letter and screening answers use the text extracted
 from this same PDF. Cover letters are regenerated for every role, irrespective
 of its match score; a saved SEEK cover letter is never reused.
 
-Add `--pdf` to `ronin tailor build` to compile a preview without applying. Supply
-explicit `--catalog` and `--base-resume` paths for that standalone command.
+With `full_resume: true`, `ronin tailor build --job-id 12345678` uses the configured
+catalog, template and compiler and produces a checked PDF without applying.
+Explicit `--catalog`, `--base-resume` and `--output-dir` override those paths.
+With project-only settings, add `--pdf` and supply a LaTeX base template.
 Automatic precision upload covers SEEK-native forms. The Idibu integration can
 prepare a verified job-specific PDF for review and requires per-job consent
 before submission; other external employer systems are not covered by that
