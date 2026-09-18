@@ -179,6 +179,11 @@ Both `ronin apply` and `ronin apply batch <archetype>` prepare a fresh
 job-specific PDF before applying. With the full settings above, the same workflow
 also runs for `ronin tailor build`, without submitting an application:
 
+To target exactly one eligible queued SEEK job instead of taking the first job
+in an archetype batch, use `ronin apply one 12345678`. It requires precision mode,
+asks for confirmation (or accepts `--yes`), and uses the same resume, cover-letter,
+submission and ledger pipeline. Already applied, external and gated jobs are refused.
+
 1. Extract required/preferred capabilities with exact JD quotations and select
    three complementary reviewed projects by engineering fit, not just word counts.
 2. Read reviewed local README/source excerpts; rewrite project STAR bullets.
@@ -188,7 +193,7 @@ also runs for `ronin tailor build`, without submitting an application:
 4. Compile and measure rendered bullet lines, third-line fill (at least 85%),
    page overflow, text beyond the page and visible top/bottom whitespace (within 8pt).
    Internship bullets must occupy three filled lines; project bullets use two
-   or three, and each Skills category occupies one line. Up to three drafts can
+   or three, and each Skills category occupies one line. Up to five drafts can
    shorten/expand supported prose or rebalance vertical
    margins. Font sizes are not reduced. Margin-only repairs do not call AI again.
 5. Run a separate semantic claim check and save requirements, selection reasons,

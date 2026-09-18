@@ -1470,7 +1470,7 @@ def prepare_precision_resume(
     section_snapshot: Dict[str, Any] = {}
     layout: Dict[str, Any] = {}
     layout_enabled = settings.get("check_layout", False)
-    attempts = 3 if layout_enabled else 1
+    attempts = 5 if layout_enabled else 1
     result = None
     for attempt in range(1, attempts + 1):
         if result is None:

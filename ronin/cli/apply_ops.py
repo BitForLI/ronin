@@ -771,6 +771,61 @@ def sync_queue(limit: int = 0) -> int:
         service.close()
 
 
+def apply_one(job_id: str, yes: bool = False) -> int:
+    """Apply to exactly one queued SEEK job with a fresh precision resume."""
+    load_env()
+    config = load_config()
+    if not bool(config.get("precision_apply", {}).get("enabled", False)):
+        console.print("[red]Precision mode is disabled; application stopped.[/red]")
+        return 1
+
+    db = get_db_manager(config=config)
+    try:
+        record = db.get_job_by_job_id(job_id)
+        if not record:
+            console.print(f"[red]Job {job_id} is not in the Ronin database.[/red]")
+            return 1
+        if (
+            record.get("status") not in {"DISCOVERED", "APP_ERROR"}
+            or int(record.get("quick_apply") or 0) != 1
+            or int(record.get("market_intelligence_only") or 0) != 0
+            or int(record.get("below_threshold") or 0) != 0
+        ):
+            console.print(
+                "[red]This job is not eligible for the queued SEEK apply path.[/red]"
+            )
+            return 1
+
+        console.print(
+            f"[bold]Precision application:[/bold] {record.get('title', '')} "
+            f"@ {record.get('company_name', '')} ({job_id})"
+        )
+        console.print(f"[dim]{record.get('url', '')}[/dim]")
+        if not yes and not Confirm.ask(
+            "Generate and submit this application?", default=False
+        ):
+            console.print("[yellow]Application cancelled.[/yellow]")
+            return 0
+
+        archetype = str(record.get("archetype_primary") or "default").lower()
+        results = _apply_records(
+            jobs=[record],
+            db=db,
+            profile_state=archetype,
+            batch_id=None,
+            resume_variant_sent="job-specific",
+            resume_commit_hash=None,
+            resume_profile_override=archetype,
+        )
+        console.print(
+            f"[bold]Result:[/bold] applied={results['applied']}, "
+            f"stale={results['stale']}, failed={results['failed']}"
+        )
+        return 0 if results["applied"] == 1 else 1
+    finally:
+        db.close()
+
+
 def batch_apply(
     archetype: str,
     limit: int = 0,

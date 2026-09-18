@@ -480,7 +480,7 @@ def test_targeted_repair_freezes_every_other_bullet():
                 {
                     "index": 3,
                     "text": replacement,
-                    "evidence_ids": ["context", "action", "result"],
+                    "evidence_ids": ["action"],
                 }
             ],
         }
@@ -505,10 +505,134 @@ def test_targeted_repair_freezes_every_other_bullet():
         sections["experience"]["bullets"][:2] == snapshot["experience"]["bullets"][:2]
     )
     assert sections["experience"]["bullets"][2]["text"] == replacement
+    assert "context" in sections["experience"]["bullets"][2]["evidence_ids"]
     assert sections["skills"] == snapshot["skills"]
     assert "DUPOON PTY LTD" in text and "Student visa" in text
-    requests = json.loads(captured[0]["user_message"])["requests"]
+    payload = json.loads(captured[0]["user_message"])
+    requests = payload["requests"]
     assert len(requests) == 1 and requests[0]["index"] == 3
+    assert len(payload["other_experience_bullets"]) == 2
+
+    repair_resume_layout(
+        result,
+        snapshot,
+        {
+            "issues": ["Bullet 3: internship currently has 2 lines"],
+            "bullets": [{"index": 3, "lines": 2, "last_line_fill": 0.3}],
+        },
+        base,
+        base,
+        intern,
+        {},
+        ai_service=ai,
+        model="test",
+        max_words=65,
+    )
+    short_bullet_request = json.loads(captured[1]["user_message"])["requests"][0]
+    assert short_bullet_request["approx_target_characters"] <= round(
+        len(snapshot["experience"]["bullets"][2]["text"]) * 1.2
+    )
+
+
+def test_length_retry_preserves_accepted_skills_and_header():
+    base = (WORKSPACE / "main_comprehensive_software_engineer_resume.tex").read_text(
+        encoding="utf-8"
+    )
+    p, intern = project(), project("intern", True)
+    match = score_project(p, JOB["description"])
+    skills = read_base_skills(base)
+    snapshot = section_payload(intern, skills)
+    generated = validate_tailored_projects(
+        {"projects": [section_payload(p, skills)["experience"]]}, [match]
+    )
+    result = TailoringResult("qa", JOB["title"], "Example", generated, (match,))
+    narrowed = {label: values[:1] for label, values in skills.items()}
+    replacement = {
+        "index": 3,
+        "text": snapshot["experience"]["bullets"][2]["text"],
+        "evidence_ids": ["action"],
+    }
+    replies = iter(
+        [
+            {
+                "replacements": [replacement],
+                "skills": narrowed,
+                "experience_technologies": ["Python", "React"],
+            },
+            {"replacements": [replacement]},
+        ]
+    )
+    _, sections, _ = repair_resume_layout(
+        result,
+        snapshot,
+        {
+            "issues": [
+                "Bullet 3: internship currently has 2 lines",
+                "Skills category Languages: keep to one rendered line",
+                "Text extends outside the page",
+            ],
+            "bullets": [{"index": 3, "lines": 2, "last_line_fill": 0.3}],
+        },
+        base,
+        base,
+        intern,
+        {},
+        ai_service=SimpleNamespace(chat_completion=lambda **kw: next(replies)),
+        model="test",
+        max_words=65,
+    )
+    assert sections["skills"] == narrowed
+    assert sections["experience"]["technologies"] == ["Python", "React"]
+    assert "context" in sections["experience"]["bullets"][2]["evidence_ids"]
+
+
+@pytest.mark.parametrize("status,quick_apply", [("APPLIED", 1), ("DISCOVERED", 0)])
+def test_apply_one_refuses_applied_and_external_jobs(monkeypatch, status, quick_apply):
+    import ronin.cli.apply_ops as module
+
+    record = {"status": status, "quick_apply": quick_apply}
+    closed = []
+    db = SimpleNamespace(
+        get_job_by_job_id=lambda job_id: record,
+        close=lambda: closed.append(True),
+    )
+    monkeypatch.setattr(module, "load_env", lambda: None)
+    monkeypatch.setattr(
+        module, "load_config", lambda: {"precision_apply": {"enabled": True}}
+    )
+    monkeypatch.setattr(module, "get_db_manager", lambda **kw: db)
+    monkeypatch.setattr(
+        module, "_apply_records", lambda **kw: pytest.fail("must not apply")
+    )
+    assert module.apply_one("123", yes=True) == 1
+    assert closed == [True]
+
+
+def test_apply_one_passes_exactly_one_job_to_precision_pipeline(monkeypatch):
+    import ronin.cli.apply_ops as module
+
+    record = {
+        "id": 55,
+        "job_id": "123",
+        "status": "DISCOVERED",
+        "quick_apply": 1,
+        "archetype_primary": "builder",
+    }
+    captured = []
+    db = SimpleNamespace(get_job_by_job_id=lambda job_id: record, close=lambda: None)
+    monkeypatch.setattr(module, "load_env", lambda: None)
+    monkeypatch.setattr(
+        module, "load_config", lambda: {"precision_apply": {"enabled": True}}
+    )
+    monkeypatch.setattr(module, "get_db_manager", lambda **kw: db)
+    monkeypatch.setattr(
+        module,
+        "_apply_records",
+        lambda **kw: captured.append(kw) or {"applied": 1, "stale": 0, "failed": 0},
+    )
+    assert module.apply_one("123", yes=True) == 0
+    assert captured[0]["jobs"] == [record]
+    assert captured[0]["resume_variant_sent"] == "job-specific"
 
 
 def test_targeted_repair_rejects_changes_to_another_bullet():

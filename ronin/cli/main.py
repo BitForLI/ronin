@@ -223,6 +223,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="When used with --auto-profile, do not save profile changes",
     )
 
+    apply_one = apply_sub.add_parser(
+        "one",
+        help="Apply to one queued SEEK job by its job ID",
+    )
+    apply_one.add_argument("job_id", help="SEEK job ID stored in Ronin")
+    apply_one.add_argument(
+        "--yes", action="store_true", help="Skip confirmation prompt"
+    )
+
     apply_sub.add_parser("status", help="Show funnel metrics and conversion rates")
 
     apply_external = apply_sub.add_parser(
@@ -1051,6 +1060,15 @@ def main() -> None:
                 yes=bool(getattr(args, "yes", False)),
                 auto_profile=bool(getattr(args, "auto_profile", False)),
                 dry_run_profile=bool(getattr(args, "dry_run_profile", False)),
+            )
+            if rc != 0:
+                sys.exit(rc)
+        elif apply_action == "one":
+            from ronin.cli.apply_ops import apply_one
+
+            rc = apply_one(
+                job_id=getattr(args, "job_id"),
+                yes=bool(getattr(args, "yes", False)),
             )
             if rc != 0:
                 sys.exit(rc)
