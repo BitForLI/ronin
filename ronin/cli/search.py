@@ -93,7 +93,7 @@ def main():
             console.print("[yellow]No jobs found matching your criteria[/yellow]")
             return
 
-        console.print(f"[green]✓[/green] Found {len(previews)} matching listings\n")
+        console.print(f"[green]Found[/green] {len(previews)} matching listings\n")
 
         # Phase 2: Fetch full job details with progress bar
         jobs = []
@@ -130,7 +130,7 @@ def main():
             console.print(
                 f"[dim]Skipped {skipped_quick_apply} without quick apply[/dim]"
             )
-        console.print(f"[green]✓[/green] Fetched details for {len(jobs)} jobs\n")
+        console.print(f"[green]Fetched[/green] details for {len(jobs)} jobs\n")
 
         if not jobs:
             console.print("[yellow]No jobs with quick apply found[/yellow]")
@@ -160,7 +160,7 @@ def main():
             console.print("[yellow]No new jobs to analyze[/yellow]")
             return
 
-        console.print(f"[green]✓[/green] {len(new_jobs)} new jobs to analyze\n")
+        console.print(f"[green]New[/green] jobs to analyze: {len(new_jobs)}\n")
 
         # Phase 4: Analyze jobs with AI
         analyzed_jobs = []
@@ -201,7 +201,7 @@ def main():
             console.print("[yellow]No jobs were successfully analyzed[/yellow]")
             return
 
-        console.print(f"[green]✓[/green] Analyzed {len(analyzed_jobs)} jobs\n")
+        console.print(f"[green]Analyzed[/green] {len(analyzed_jobs)} jobs\n")
 
         # Phase 5: Save to database
         with console.status("[bold green]Saving to database..."):
