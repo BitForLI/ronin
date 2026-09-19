@@ -1817,7 +1817,7 @@ def apply_external(
             resume_profile = (
                 str(record.get("resume_profile") or "builder").strip().lower()
             )
-            console.print(f"[dim]→ {title[:44]} @ {company[:24]} ({job_id})[/dim]")
+            console.print(f"[dim]Processing {title[:44]} @ {company[:24]} ({job_id})[/dim]")
             try:
                 result = applier.apply_to_job(
                     job_id=job_id,
@@ -1838,14 +1838,14 @@ def apply_external(
             if result == STATUS_APPLIED:
                 applied += 1
                 db.update_job_status(job_id, "APPLIED")
-                console.print(f"[green]✓ applied[/green] {title[:44]}")
+                console.print(f"[green]Applied[/green] {title[:44]}")
             elif result == STATUS_DRY_RUN:
                 dry += 1
                 # Do NOT mark applied — dry-run stopped before submit.
-                console.print(f"[yellow]◐ dry-run reached submit[/yellow] {title[:44]}")
+                console.print(f"[yellow]Dry-run reached submit[/yellow] {title[:44]}")
             elif result == STATUS_STALE:
                 db.update_job_status(job_id, "STALE")
-                console.print(f"[yellow]○ expired[/yellow] {title[:44]}")
+                console.print(f"[yellow]Expired[/yellow] {title[:44]}")
             else:
                 failed += 1
                 # Persist the REAL outcome. Collapsing everything to APP_ERROR
@@ -1853,7 +1853,7 @@ def apply_external(
                 # automation cannot fix (no LinkedIn session, captcha) was
                 # retried on every run, forever, with the reason discarded.
                 db.update_job_status(job_id, _TERMINAL_STATUS.get(result, "APP_ERROR"))
-                console.print(f"[red]✗ {result}[/red] {title[:44]}")
+                console.print(f"[red]{result}[/red] {title[:44]}")
     finally:
         applier.cleanup()
 

@@ -117,8 +117,10 @@ def main():
 
                 details = scraper.get_job_details(preview["job_id"])
                 if details:
-                    if scraper.quick_apply_only and not details.get(
-                        "quick_apply", False
+                    if (
+                        scraper.quick_apply_only
+                        and not details.get("quick_apply", False)
+                        and not scraper.capture_external
                     ):
                         skipped_quick_apply += 1
                     else:
