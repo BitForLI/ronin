@@ -16,6 +16,7 @@ from rich.table import Table
 
 from ronin.analyzer.archetype_classifier import (
     ArchetypeClassifier,
+    is_excluded_title,
     is_protected_company,
 )
 from ronin.application_queue import ApplicationQueueService
@@ -1772,7 +1773,38 @@ def apply_external(
         return 0
 
     # -- Apply mode --------------------------------------------------------
-    jobs = db.get_pending_external_jobs(limit=limit, min_score=min_score)
+    app_cfg = config.get("application", {}) or {}
+    excluded_title_markers = tuple(
+        str(marker).strip().lower()
+        for marker in app_cfg.get("excluded_title_markers", [])
+        if str(marker).strip()
+    )
+    blocked_description_markers = tuple(
+        str(marker).strip().lower()
+        for marker in app_cfg.get("blocked_description_markers", [])
+        if str(marker).strip()
+    )
+    candidates = db.get_pending_external_jobs(
+        limit=max(int(limit) * 10, 50), min_score=min_score
+    )
+    jobs = []
+    for record in candidates:
+        title = str(record.get("title") or "")
+        title_lower = title.lower()
+        description_lower = str(record.get("description") or "").lower()
+        blocked = is_excluded_title(title) or any(
+            marker in title_lower for marker in excluded_title_markers
+        )
+        blocked = blocked or any(
+            marker in description_lower for marker in blocked_description_markers
+        )
+        if blocked:
+            db.update_record(int(record["id"]), {"below_threshold": 1})
+            console.print(f"[dim]Eligibility filter skipped {title[:52]}[/dim]")
+            continue
+        jobs.append(record)
+        if len(jobs) >= int(limit):
+            break
     if not jobs:
         console.print("[yellow]No pending external jobs to apply to.[/yellow]")
         return 0
