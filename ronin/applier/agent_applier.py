@@ -24,7 +24,7 @@ from selenium.webdriver.support.ui import Select
 from ronin.ai import AIService
 from ronin.applier.browser import ChromeDriver
 from ronin.applier.cover_letter import CoverLetterGenerator
-from ronin.config import load_config
+from ronin.config import get_ronin_home, load_config
 from ronin.profile import load_profile
 
 STATUS_APPLIED = "APPLIED"
@@ -128,7 +128,7 @@ class AgentApplier:
         resume = self._profile_resume(resume_profile)
         if resume and resume.file:
             configured = Path(resume.file).expanduser()
-            candidates = [configured, Path.home() / ".ronin" / "resumes" / configured]
+            candidates = [configured, get_ronin_home() / "resumes" / configured]
             for candidate in candidates:
                 if candidate.is_file():
                     return candidate.read_text(encoding="utf-8", errors="replace")
@@ -157,14 +157,10 @@ class AgentApplier:
             candidates.extend(
                 [
                     Path(resume.file).expanduser(),
-                    Path.home() / ".ronin" / "resumes" / resume.file,
+                    get_ronin_home() / "resumes" / resume.file,
                 ]
             )
-        # The local fork keeps the reviewed broad-apply PDF beside the repo.
-        candidates.append(
-            Path.cwd().parent / "output" / "pdf" / "Reese_Software_Engineer_Resume.pdf"
-        )
-        candidates.extend(sorted((Path.home() / ".ronin" / "resumes").glob("*.pdf")))
+        candidates.extend(sorted((get_ronin_home() / "resumes").glob("*.pdf")))
         for candidate in candidates:
             if candidate.is_file():
                 return candidate.resolve()
@@ -330,7 +326,9 @@ class AgentApplier:
             return ["no", "none", "not held"]
         if "citizen" in text or "permanent resident" in text:
             return ["student visa", "temporary visa", "visa holder", "no"]
-        if "unrestricted" in text and "work" in text:
+        if "work" in text and any(
+            marker in text for marker in ("unrestricted", "full", "without restriction")
+        ):
             return ["no", "student visa", "temporary visa"]
         if "work rights" in text or "right to work" in text or "visa" in text:
             return ["student visa", "temporary visa", "limited", "yes"]

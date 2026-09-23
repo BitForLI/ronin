@@ -145,15 +145,13 @@ class ApplicationQueueService:
             # artefact rather than a fit.
             title_lower = str(job.get("title", "")).lower()
             description_lower = str(job.get("description", "")).lower()
-            if is_excluded_title(job.get("title", "")) or any(
+            title_is_excluded = is_excluded_title(job.get("title", "")) or any(
                 marker in title_lower for marker in excluded_title_markers
-            ):
-                intel_only = 1
-                excluded += 1
-
-            if any(
+            )
+            description_is_blocked = any(
                 marker in description_lower for marker in blocked_description_markers
-            ):
+            )
+            if title_is_excluded or description_is_blocked:
                 intel_only = 1
                 excluded += 1
 
