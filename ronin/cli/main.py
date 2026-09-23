@@ -251,6 +251,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Only apply to external jobs at/above this score (default: 0)",
     )
     apply_external.add_argument(
+        "--job-id",
+        default="",
+        help="Process one exact external job ID, including a previous retry",
+    )
+    apply_external.add_argument(
         "--report",
         action="store_true",
         help="Only show the external-coverage report; do not apply",
@@ -1091,6 +1096,7 @@ def main() -> None:
             rc = apply_external(
                 limit=int(getattr(args, "limit", 10) or 10),
                 min_score=int(getattr(args, "min_score", 0) or 0),
+                job_id=str(getattr(args, "job_id", "") or ""),
                 dry_run=dry_run_flag,
                 report=bool(getattr(args, "report", False)),
                 yes=bool(getattr(args, "yes", False)),

@@ -101,13 +101,18 @@ class SeekScraper(BaseScraper):
         salary_max = salary_config.get("max", 999999)
         date_range = self.search_config.get("date_range", 30)
 
+        scraping_config = self.config.get("scraping", {}) or {}
         params = {
             "daterange": date_range,
             "salaryrange": f"{salary_min}-{salary_max}",
             "salarytype": "annual",
             "sortmode": "ListedDate",
-            "worktype": "242,244",
-            "workarrangement": "2,3",
+            "worktype": str(
+                scraping_config.get("seek_worktype_ids", "242,243,244,245")
+            ),
+            "workarrangement": str(
+                scraping_config.get("seek_workarrangement_ids", "1,2,3")
+            ),
             "page": str(page),
         }
 

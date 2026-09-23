@@ -1721,6 +1721,7 @@ def _apply_records(
 def apply_external(
     limit: int = 10,
     min_score: int = 0,
+    job_id: str = "",
     dry_run: Optional[bool] = None,
     report: bool = False,
     yes: bool = False,
@@ -1784,9 +1785,25 @@ def apply_external(
         for marker in app_cfg.get("blocked_description_markers", [])
         if str(marker).strip()
     )
-    candidates = db.get_pending_external_jobs(
-        limit=max(int(limit) * 10, 50), min_score=min_score
-    )
+    if job_id:
+        exact = db.get_job_by_job_id(job_id)
+        if exact is None:
+            console.print(f"[red]External job {job_id} was not found.[/red]")
+            return 1
+        if str(exact.get("apply_type") or "") != "external":
+            console.print(f"[red]Job {job_id} is not an external application.[/red]")
+            return 1
+        if str(exact.get("status") or "") == "APPLIED":
+            console.print(f"[yellow]Job {job_id} was already submitted.[/yellow]")
+            return 0
+        if int(exact.get("score", 0) or 0) < int(min_score):
+            console.print(f"[yellow]Job {job_id} is below --min-score.[/yellow]")
+            return 0
+        candidates = [exact]
+    else:
+        candidates = db.get_pending_external_jobs(
+            limit=max(int(limit) * 10, 50), min_score=min_score
+        )
     jobs = []
     for record in candidates:
         title = str(record.get("title") or "")
@@ -1849,7 +1866,9 @@ def apply_external(
             resume_profile = (
                 str(record.get("resume_profile") or "builder").strip().lower()
             )
-            console.print(f"[dim]Processing {title[:44]} @ {company[:24]} ({job_id})[/dim]")
+            console.print(
+                f"[dim]Processing {title[:44]} @ {company[:24]} ({job_id})[/dim]"
+            )
             try:
                 result = applier.apply_to_job(
                     job_id=job_id,

@@ -18,35 +18,25 @@ search:
   # Keywords to search for on job boards
   # Use Seek-style OR syntax: '"keyword one"-or-"keyword two"'
   # Set your keywords during: ronin setup
-  # v6 — operator-embed, data by title, discovery by motion (vault: §Career, 2026-07).
-  # Ronin hunts DATA-TITLED seats — ideally inside energy operators on the
-  # asset / regulatory / OT side, where the discovery motion runs inward and
-  # the reporting line (not the noun) decides whether the seat is real.
-  # The vendor-SE lane is retired: those titles are listed in
-  # EXCLUDED_TITLE_MARKERS (ronin/analyzer/archetype_classifier.py) and never
-  # queue for application, however they score.
   keywords:
-  # ── Tier 1 — Data engineering, every seniority (the title on the seat) ────
-  - '"data engineer"-or-"senior data engineer"-or-"lead data engineer"-or-"principal data engineer"-or-"staff data engineer"'
-  - '"analytics engineer"-or-"senior analytics engineer"-or-"data platform engineer"-or-"data engineering"'
-  - '"data architect"-or-"senior data architect"-or-"enterprise data architect"-or-"data solutions architect"-or-"lead data solutions architect"-or-"data platform architect"'
-  # ── Tier 2 — The operator seats (asset / OT / network — the bullseye) ─────
-  - '"asset information analyst"-or-"asset data analyst"-or-"asset information engineer"-or-"asset condition engineer"-or-"asset systems analyst"'
-  - '"OT data"-or-"operational technology data"-or-"SCADA data"-or-"PI historian"-or-"OSIsoft"'
-  - '"network data engineer"-or-"network data analyst"-or-"metering data"-or-"AMI data"-or-"grid data"'
-  # ── Tier 3 — Regulatory data (the submission-integrity seat) ──────────────
-  - '"regulatory reporting analyst"-or-"regulatory data analyst"-or-"senior analyst regulatory reporting"'
-  # ── Tier 4 — Applied AI/ML (on-thesis ONLY when it's on operational/asset
-  #    data — predictive maintenance, condition monitoring, forecasting. The
-  #    scorer's red flag demotes generic LLM/chatbot software-for-software.) ──
-  - '"AI engineer"-or-"applied AI engineer"-or-"machine learning engineer"-or-"ML engineer"-or-"applied scientist"-or-"MLOps engineer"'
+  - '"associate software engineer"-or-"associate developer"-or-"entry level software engineer"-or-"entry level developer"'
+  - '"junior full stack developer"-or-"junior front end developer"-or-"junior back end developer"-or-"junior web developer"'
+  - '"graduate programmer"-or-"graduate full stack developer"-or-"graduate data engineer"-or-"junior data engineer"'
+  - '"software development intern"-or-"software engineer internship"-or-"summer software engineer"-or-"student software developer"'
+  - '"graduate technology consultant"-or-"digital graduate"-or-"ICT graduate"-or-"software development graduate"'
+  - '"graduate software engineer"-or-"graduate software developer"-or-"graduate developer"'
+  - '"software engineer intern"-or-"software engineering intern"-or-"software developer intern"-or-"developer intern"'
+  - '"junior software engineer"-or-"junior software developer"-or-"junior developer"'
+  - '"technology graduate"-or-"IT graduate"-or-"software graduate"'
+  - '"data engineer intern"-or-"data engineering intern"-or-"machine learning engineer intern"'
+  - '"software development internship"-or-"software engineering internship"-or-"technology internship"'
 
-  location: "All-Australia"                   # Broadened from Victoria-VIC to catch remote-national build-and-sell roles (options: "All-Australia", "Victoria-VIC", "Melbourne-VIC")
-  date_range: 21                             # Days to look back (Seek honours arbitrary values, not just its 1/3/7/14/31 UI buckets)
+  location: "Sydney"
+  date_range: 30
 
   salary:
     min: 0
-    max: 400000
+    max: 200000
 
 # -----------------------------------------------------------------------------
 # Application Settings
@@ -57,12 +47,38 @@ application:
   # Set during: ronin setup
   salary_min: 0
   salary_max: 0
-  batch_limit: 100                           # Max jobs to apply to per run (0 = unlimited)
+  batch_limit: 5                             # Keep the first live run small for review
   expire_after_days: 30                      # Pending jobs older than this (by posting date) become EXPIRED
 
   # Minimum analyst score to enter the apply queue. Sub-40 jobs converted at
   # 2.2% against ~10% above it, while taking 63% of all applications.
-  min_score: 40
+  min_score: 55
+
+  # Hard safety filters for a student/graduate applicant without Australian
+  # citizenship, permanent residency, or an existing security clearance.
+  excluded_title_markers:
+    - "senior"
+    - "lead"
+    - "principal"
+    - "staff"
+    - "manager"
+    - "architect"
+    - "director"
+    - "head of"
+  blocked_description_markers:
+    - "australian citizenship required"
+    - "must be an australian citizen"
+    - "australian citizens only"
+    - "only able to hire australian citizens"
+    - "citizen or permanent resident"
+    - "permanent residency required"
+    - "must be a permanent resident"
+    - "security clearance required"
+    - "must hold a security clearance"
+    - "ability to obtain an australian government security clearance"
+    - "eligible to obtain an australian government security clearance"
+    - "cannot accept visa holders"
+    - "only candidates with full australian working rights"
 
   # Outcome-weighted apply ordering. Multipliers are relative to the base
   # callback rate and are shrunk toward it, because several cells are small —
@@ -81,11 +97,11 @@ application:
       translator: 0.38
       builder: 0.31
     seniority_weights:
-      senior: 1.93
-      unknown: 1.18
-      junior: 0.83
-      mid: 0.72
-      lead: 0.67
+      senior: 0.0
+      unknown: 1.0
+      junior: 1.5
+      mid: 0.4
+      lead: 0.0
 
   # Legacy gate, used only when ranking.enabled is false. Keys off resume
   # embedding quality rather than job quality, so throughput moved whenever the
@@ -111,7 +127,7 @@ database:
 # Scraping Settings
 # -----------------------------------------------------------------------------
 scraping:
-  max_jobs: 0                                # 0 = unlimited
+  max_jobs: 80                               # Bound AI usage per search run
   delay_seconds: 1                           # Delay between requests (rate limiting)
   timeout_seconds: 10                        # HTTP request timeout
   quick_apply_only: true                     # Only process jobs with quick apply
@@ -119,7 +135,9 @@ scraping:
   # agent applier (`ronin apply external`) can submit them. Covers Seek
   # Workday/PageUp link-outs and every LinkedIn job. When false, those jobs
   # are stored as market intelligence only.
-  capture_external: true
+  capture_external: true                     # Retain SEEK link-out graduate/intern roles
+  seek_worktype_ids: "242,243,244,245"       # Full-time, part-time, contract, casual
+  seek_workarrangement_ids: "1,2,3"          # On-site, hybrid, remote
 
 # -----------------------------------------------------------------------------
 # Agent-led applier (external / link-out ATS applications)
@@ -132,7 +150,7 @@ agent_apply:
   max_steps: 14                # Max page transitions per application
   step_pause_seconds: 2.0      # Settle time after each action
   brain_model: "gpt-5.6-terra"       # Codex model driving navigation decisions
-  resume_pdf_dir: "resume/pdf"       # Where built resume PDFs live (for upload)
+  resume_pdf_dir: "../output/pdf"    # Reviewed broad-apply PDFs live beside this repo
   resume_pdf_map: {}                 # Optional archetype -> pdf filename overrides
   account_creation: false      # Phase 3: register accounts on gated ATSes
   email_verify:
@@ -260,6 +278,7 @@ contact_intel:
 # Split into builder/fixer/operator/translator yamls per role when desired.
 # -----------------------------------------------------------------------------
 resume_variants:
+  enabled: false                             # Use the saved general resume for broad applications
   # Remote the weekly `ronin resume regen` pushes to (your own fork).
   regen_push_remote: "fork"
   repo_path: "resume"

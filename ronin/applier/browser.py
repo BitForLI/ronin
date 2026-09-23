@@ -402,13 +402,30 @@ class ChromeDriver:
 
     def _check_logged_in_indicators(self) -> bool:
         """Quick check for logged-in indicators. Returns True if logged in."""
+        try:
+            current_url = (self.driver.current_url or "").lower()
+        except Exception:
+            return False
+
+        # Public sign-in pages can contain generic account links/buttons. They
+        # are not proof of an authenticated SEEK application session.
+        if any(
+            marker in current_url
+            for marker in (
+                "accounts.google.com",
+                "login.seek.com",
+                "/sign-in",
+                "/login",
+            )
+        ):
+            return False
+
         # Use JS for instant check - much faster than XPath queries
         js_check = """
         return !!(
-            document.querySelector('a[href*="/account"]') ||
             document.querySelector('a[href*="my-activity"]') ||
             document.querySelector('[data-automation="account-menu"]') ||
-            document.querySelector('button[aria-label*="Account"]') ||
+            document.querySelector('[data-testid="account-menu"]') ||
             ((document.body && (document.body.innerText || ''))
                 .toLowerCase()
                 .includes('sign out'))
@@ -452,9 +469,11 @@ class ChromeDriver:
             interactive = False
 
         try:
-            # Quick navigation to check login status
+            # Verify against an authenticated profile route. The public SEEK
+            # homepage can show an account-shaped menu even when the separate
+            # application session has expired.
             logger.debug("Checking Seek login status...")
-            self.driver.get("https://www.seek.com.au")
+            self.driver.get("https://www.seek.com.au/profile/me")
 
             # Quick wait for page to minimally load
             WebDriverWait(self.driver, 5).until(

@@ -100,6 +100,16 @@ class ApplicationQueueService:
         app_cfg = self.config.get("application", {}) or {}
         threshold = float(app_cfg.get("queue_threshold", 0.15))
         policy = RankingPolicy(self.config)
+        excluded_title_markers = tuple(
+            str(marker).strip().lower()
+            for marker in app_cfg.get("excluded_title_markers", [])
+            if str(marker).strip()
+        )
+        blocked_description_markers = tuple(
+            str(marker).strip().lower()
+            for marker in app_cfg.get("blocked_description_markers", [])
+            if str(marker).strip()
+        )
 
         # Retire ads too old to still be live before scoring the rest, so the
         # queue never spends browser time on a month-old posting.
@@ -133,7 +143,17 @@ class ApplicationQueueService:
             # Roles we no longer target never queue, whatever they scored. The
             # four archetypes score these as noise, so a high score is an
             # artefact rather than a fit.
-            if is_excluded_title(job.get("title", "")):
+            title_lower = str(job.get("title", "")).lower()
+            description_lower = str(job.get("description", "")).lower()
+            if is_excluded_title(job.get("title", "")) or any(
+                marker in title_lower for marker in excluded_title_markers
+            ):
+                intel_only = 1
+                excluded += 1
+
+            if any(
+                marker in description_lower for marker in blocked_description_markers
+            ):
                 intel_only = 1
                 excluded += 1
 

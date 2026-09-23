@@ -877,6 +877,11 @@ class SQLiteManager:
                 or analysis_data.get("tech_keywords")
                 or []
             )
+            key_tools = analysis_data.get("key_tools") or analysis_data.get(
+                "tech_stack", "N/A"
+            )
+            if isinstance(key_tools, (list, tuple)):
+                key_tools = ", ".join(str(tool) for tool in key_tools)
             # Resolve the application type. Prefer an explicit value from the
             # scraper; otherwise derive from the quick_apply flag.
             apply_type = job_data.get("apply_type") or (
@@ -924,8 +929,7 @@ class SQLiteManager:
                     job_data.get("title", ""),
                     job_data.get("description", ""),
                     analysis_data.get("score", 0),
-                    analysis_data.get("key_tools")
-                    or analysis_data.get("tech_stack", "N/A"),
+                    key_tools,
                     analysis_data.get("recommendation", ""),
                     analysis_data.get("overview", ""),
                     url,
