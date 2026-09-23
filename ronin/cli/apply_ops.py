@@ -1726,11 +1726,44 @@ def apply_external(
     report: bool = False,
     yes: bool = False,
 ) -> int:
-    """Report on, or apply to, external (link-out) jobs via the agent applier.
+    """Run the external application workflow and always release its database."""
+    load_env()
+    config = load_config()
+    db = get_db_manager(config=config)
+    try:
+        return _apply_external_with_db(
+            db=db,
+            config=config,
+            limit=limit,
+            min_score=min_score,
+            job_id=job_id,
+            dry_run=dry_run,
+            report=report,
+            yes=yes,
+        )
+    finally:
+        db.close()
+
+
+def _apply_external_with_db(
+    *,
+    db,
+    config: dict,
+    limit: int,
+    min_score: int,
+    job_id: str,
+    dry_run: Optional[bool],
+    report: bool,
+    yes: bool,
+) -> int:
+    """Report on, or apply to, external jobs using an open database handle.
 
     Args:
+        db: Open Ronin database manager.
+        config: Loaded Ronin configuration.
         limit: Max external jobs to process in this run.
         min_score: Only apply to jobs at/above this analyzer score.
+        job_id: Optional exact external job ID to process.
         dry_run: Force dry-run on/off. None uses agent_apply.dry_run config.
         report: If True, only print the external-coverage report and exit.
         yes: Skip the confirmation prompt before a LIVE (non-dry-run) run.
@@ -1738,10 +1771,6 @@ def apply_external(
     Returns:
         Process exit code (0 on success).
     """
-    load_env()
-    config = load_config()
-    db = get_db_manager(config=config)
-
     # -- Report mode: size how much of the pipeline is link-out ------------
     rows = db.get_external_jobs_report()
     total_external = sum(int(r.get("external_count", 0) or 0) for r in rows)
